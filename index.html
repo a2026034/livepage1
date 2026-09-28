@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Aurum.cor</title>
+<link rel="stylesheet" href="style.css">
+
+</head>
+<body>
+<canvas id="life-bg" aria-hidden="true"></canvas>
+
+<main>
+  <h2>Art collective</h2>
+  <h1>Atelier Aurum</h1>
+  <p>Atelier AUrum（2026/5/28〜）とは、AUrum.corが主宰するミクストメディアを主に扱うアートコレクティブ。特定の場所に位置せず、この宇宙に普遍的に存在する。という設定。ポスト・インターネット的な表現を特徴とする。
+</p>
+
+  <h5>member</h5>
+    <ul>
+      <li>AUrum.cor</li>
+      <li>深海竹林</li>
+      <li>夜間モード</li>
+      <li>cadmium</li>
+      <li>さんぼん</li>
+    </ul>
+
+    <h5>works</h5>
+   <table class="timeline-table">
+        <thead>
+            <tr>
+                <th class="col-year">y</th>
+                <th class="col-month">m</th>
+                <th class="col-day">d</th>
+                <th class="col-content">title</th>
+                <th class="col-content">genre</th>
+                <th class="col-content">＠</th>
+                <th class="col-content">artists</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>2026</td>
+                <td></td>
+                <td></td>
+                <td>防犯カメラ</td>
+                <td>Installation(media・musit・poetry)</td>
+                <td>サレジオ祭</td>
+                <td>AUrum.cor</td>
+            </tr>
+            <tr>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td>共依存</td>
+                <td>Sculpture</td>
+                <td>サレジオ祭</td>
+                <td>AUrum.cor</td>
+            </tr>
+            <!-- 必要に応じて行（tr）を増やしてください -->
+        </tbody>
+    </table>
+</main>
+
+<script>
+/* ===== ライフゲーム背景：ここから ===== */
+(() => {
+  const CELL = 12;      // 1マスの大きさ(px)
+  const INTERVAL = 120; // 世代交代の間隔(ms)
+
+  const canvas = document.getElementById('life-bg');
+  const ctx = canvas.getContext('2d');
+  let cols = 0, rows = 0, grid = new Uint8Array(0), next = new Uint8Array(0);
+  let dirty = true, last = 0, prev = null;
+
+  function resize() {
+    const w = window.innerWidth, h = window.innerHeight;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = w * dpr;
+    canvas.height = h * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    const nc = Math.ceil(w / CELL), nr = Math.ceil(h / CELL);
+    const ng = new Uint8Array(nc * nr);
+    for (let y = 0; y < Math.min(rows, nr); y++)
+      for (let x = 0; x < Math.min(cols, nc); x++)
+        ng[y * nc + x] = grid[y * cols + x];
+    cols = nc; rows = nr; grid = ng; next = new Uint8Array(nc * nr);
+    dirty = true;
+  }
+
+  // 標準ルール（B3/S23）。端は反対側につながる。
+  function step() {
+    for (let y = 0; y < rows; y++) {
+      const yu = ((y - 1 + rows) % rows) * cols, yc = y * cols, yd = ((y + 1) % rows) * cols;
+      for (let x = 0; x < cols; x++) {
+        const xl = (x - 1 + cols) % cols, xr = (x + 1) % cols;
+        const n = grid[yu + xl] + grid[yu + x] + grid[yu + xr]
+                + grid[yc + xl] + grid[yc + xr]
+                + grid[yd + xl] + grid[yd + x] + grid[yd + xr];
+        next[yc + x] = (n === 3 || (n === 2 && grid[yc + x])) ? 1 : 0;
+      }
+    }
+    [grid, next] = [next, grid];
+    dirty = true;
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#000';
+    for (let y = 0; y < rows; y++)
+      for (let x = 0; x < cols; x++)
+        if (grid[y * cols + x]) ctx.fillRect(x * CELL, y * CELL, CELL, CELL);
+    dirty = false;
+  }
+
+  // 前回位置から現在位置まで、通ったマスをすべて生にする
+  function paint(cx, cy) {
+    let x0 = prev ? prev[0] : cx, y0 = prev ? prev[1] : cy;
+    const dx = Math.abs(cx - x0), dy = -Math.abs(cy - y0);
+    const sx = x0 < cx ? 1 : -1, sy = y0 < cy ? 1 : -1;
+    let err = dx + dy;
+    for (;;) {
+      if (x0 >= 0 && x0 < cols && y0 >= 0 && y0 < rows) grid[y0 * cols + x0] = 1;
+      if (x0 === cx && y0 === cy) break;
+      const e2 = 2 * err;
+      if (e2 >= dy) { err += dy; x0 += sx; }
+      if (e2 <= dx) { err += dx; y0 += sy; }
+    }
+    prev = [cx, cy];
+    dirty = true;
+  }
+
+  window.addEventListener('pointermove', e => paint(Math.floor(e.clientX / CELL), Math.floor(e.clientY / CELL)));
+  window.addEventListener('pointerleave', () => { prev = null; });
+  window.addEventListener('pointerdown', () => { prev = null; });
+  window.addEventListener('resize', resize);
+
+  function loop(t) {
+    if (!document.hidden && t - last >= INTERVAL) { last = t; step(); }
+    if (dirty) draw();
+    requestAnimationFrame(loop);
+  }
+
+  resize();
+  requestAnimationFrame(loop);
+})();
+/* ===== ライフゲーム背景：ここまで ===== */
+</script>
+</body>
+</html>

@@ -1,0 +1,28 @@
+
+  /* ===== ライフゲーム背景：ここから ===== */
+  #life-bg {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    z-index: -1;          /* コンテンツの背面 */
+    pointer-events: none; /* クリックなどを邪魔しない */
+    opacity: 0.12;        /* 薄さはここで調整（0.05〜0.2 くらい） */
+  }
+  /* ===== ライフゲーム背景：ここまで ===== */
+
+  body {
+    margin: 0;
+    background: #dcdcdc;
+    color: #111;
+    font-family: "Hiragino Sans", "Noto Sans JP", sans-serif;
+  }
+  main { max-width: 40rem; margin: 0 auto; padding: 22vh 1.5rem; }
+  h1 { font-size: 2rem; margin: 0 0 1rem; }
+  p { line-height: 1.8; }
+
+  h5 {
+    font-size: 1.25rem;
+    margin: 0 0 1rem;
+    color: #000000;
+  }
