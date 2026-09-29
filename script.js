@@ -11,6 +11,62 @@ targets.forEach(target => {
 let visibleCount = 0;
 let currentTarget = null;
 const visibleCharacters = [];
+let bootComplete = false;
+
+const bootFrames = [
+  ["[===]", "起動中"],
+  ["[==/]", "起動中"],
+  ["[==-]", "起動中"],
+  ["[==\\]", "起動中"],
+  ["[==|]", "起動中"],
+  ["[==/]", "起動中"],
+  ["[==-]", "起動中"],
+  ["[==\\]", "起動中"],
+  ["[==|]", "起動中"],
+  ["[====/]", "起動中"],
+  ["[====-]", "起動中"],
+  ["[====\\]", "起動中"],
+  ["[====|]", "起動中"],
+  ["[======/]", "起動中"],
+  ["[======-]", "起動中"],
+  ["[======\\]", "起動中"],
+  ["[======|]", "起動中"],
+  ["[===========]", "準備完了"]
+];
+
+const bootScreen = document.getElementById("boot-screen");
+const bootLines = document.getElementById("boot-lines");
+let bootFrameIndex = 0;
+
+function showBootFrame() {
+  const [glyphText, statusText] = bootFrames[bootFrameIndex];
+  const line = document.createElement("div");
+  const glyph = document.createElement("span");
+  const status = document.createElement("span");
+  line.className = "boot-line";
+  glyph.className = "boot-glyph";
+  glyph.textContent = glyphText;
+  status.className = "boot-status";
+  if (statusText === "準備完了") status.classList.add("is-ready");
+  status.textContent = ` ${statusText}`;
+  line.append(glyph, status);
+  bootLines.replaceChildren(line);
+  bootFrameIndex++;
+
+  if (bootFrameIndex < bootFrames.length) {
+    window.setTimeout(showBootFrame, 130);
+  } else {
+    window.setTimeout(() => {
+      bootScreen.classList.add("is-done");
+      window.setTimeout(() => {
+        bootScreen.remove();
+        bootComplete = true;
+      }, 300);
+    }, 400);
+  }
+}
+
+showBootFrame();
 
 function setCurrentTarget(target) {
   if (currentTarget) currentTarget.classList.remove("is-current");
@@ -35,6 +91,7 @@ function appendNextCharacter() {
 setCurrentTarget(targets[0]);
 
 window.addEventListener("keydown", event => {
+  if (!bootComplete) return;
   if (event.key === "Enter") {
     event.preventDefault();
     if (!currentTarget) return;

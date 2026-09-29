@@ -15,7 +15,38 @@
     margin: 0;
     background: #dcdcdc;
     color: #111;
-    font-family: "Hiragino Sans", "Noto Sans JP", sans-serif;
+    font-family: Courier, "Courier New", monospace;
+  }
+  #boot-screen {
+    position: fixed;
+    inset: 0;
+    z-index: 10;
+    display: flex;
+    align-items: flex-start;
+    justify-content: flex-start;
+    overflow: auto;
+    padding: 1rem;
+    box-sizing: border-box;
+    background: #000;
+    font: 1rem/1.65 Courier, "Courier New", monospace;
+    transition: opacity 280ms ease;
+  }
+  #boot-screen.is-done {
+    opacity: 0;
+    pointer-events: none;
+  }
+  #boot-lines {
+    width: min(100%, 40rem);
+  }
+  .boot-line {
+    min-height: 1.65em;
+    white-space: pre;
+  }
+  .boot-glyph { color: #c15fc3; }
+  .boot-status { color: #c2701B; }
+  .boot-status.is-ready { color: #15fc31; }
+  @media (prefers-reduced-motion: reduce) {
+    #boot-screen { transition-duration: 0ms; }
   }
   main { max-width: 40rem; margin: 0 auto; padding: 22vh 1.5rem; }
   h1 { font-size: 2rem; margin: 0 0 1rem; }
@@ -29,7 +60,7 @@
 
 
   .typing {
-    font-family: monospace;
+    font-family: Courier, "Courier New", monospace;
     font-size: 1.0rem;
   }
   .typing-character {
