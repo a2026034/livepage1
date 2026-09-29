@@ -26,3 +26,24 @@
     margin: 0 0 1rem;
     color: #000000;
   }
+
+
+  .typing {
+    font-family: monospace;
+    font-size: 1.0rem;
+  }
+  .typing-character {
+    animation: character-appear 220ms ease-out both;
+  }
+  @keyframes character-appear {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  /* 点滅するカーソル */
+  .typing-target.is-current::after {
+    content: "|";
+    animation: blink 0.8s step-end infinite;
+  }
+  @keyframes blink {
+    50% { opacity: 0; }
+  }
