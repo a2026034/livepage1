@@ -32,7 +32,7 @@ const bootFrames = [
   ["[=====\\]", "生命を生成中"],
   ["[=====|]", "生命を生成中"],
   ["[=====|]", "生命を生成中"],
-  ["[=======]", "準備完了"]
+  ["[=======]", "準備完了"] 
 ];
 
 const bootScreen = document.getElementById("boot-screen");
@@ -67,6 +67,30 @@ function showBootFrame() {
   }
 }
 
+const bootSound = new Audio("sounds/Dial_up_modem_noises.ogg");
+const bootAudioContext = new AudioContext();
+const bootAudioGain = bootAudioContext.createGain();
+bootAudioGain.gain.value = 1.0;
+bootAudioContext.createMediaElementSource(bootSound).connect(bootAudioGain);
+bootAudioGain.connect(bootAudioContext.destination);
+let bootSoundStarted = false;
+let bootSoundPending = false;
+
+function playBootSound() {
+  if (bootSoundStarted || bootSoundPending) return;
+  bootSoundPending = true;
+  Promise.all([bootAudioContext.resume(), bootSound.play()]).then(() => {
+    bootSoundStarted = true;
+    window.removeEventListener("pointerdown", playBootSound);
+    window.removeEventListener("keydown", playBootSound);
+  }).catch(() => {}).finally(() => {
+    bootSoundPending = false;
+  });
+}
+
+window.addEventListener("pointerdown", playBootSound);
+window.addEventListener("keydown", playBootSound);
+playBootSound();
 showBootFrame();
 
 function setCurrentTarget(target) {
