@@ -1,4 +1,3 @@
-
 (() => {
   const canvas = document.getElementById('earth-bg');
   const ctx = canvas.getContext('2d');
@@ -188,13 +187,20 @@
   }
   // PC向けの代替: ブラウザウィンドウを動かす / マウスを動かす
   let lsx = screenX, lsy = screenY, lpx = null, lpy = null;
-  let lonOff = 0, lonTarget = 0, lonT = -1e9; // カーソルの横移動で回す経度 / 目標 / 最後に動いた時刻
+  let curOff = 0, curTarget = 0, dragging = false; // ドラッグの横移動で太陽を回す量 / 目標 / ドラッグ中か
+  // マウス・ペンのドラッグ中だけ太陽を回す(タッチは横スワイプが別の動きに使われるため対象外)
+  addEventListener('pointerdown', e => { if (e.pointerType !== 'touch' && e.button === 0) dragging = true; }, { passive: true });
+  const endDrag = () => { dragging = false; };
+  addEventListener('pointerup', endDrag, { passive: true });
+  addEventListener('pointercancel', endDrag, { passive: true });
+  addEventListener('blur', endDrag);
   addEventListener('pointermove', e => {
+    if (dragging && e.pointerType === 'mouse' && !(e.buttons & 1)) dragging = false; // ウィンドウ外で離した場合
     if (lpx !== null) {
       kick((e.clientX - lpx) * .4, (e.clientY - lpy) * .4); // 全体の揺れは小さめ
-      if (!reduce) { // 横の動きで地球を回す(右へ動かすと表面も右へ流れる)
-        lonTarget = Math.max(-1.2, Math.min(1.2, lonTarget - (e.clientX - lpx) * .003));
-        lonT = performance.now(); dirty = true;
+      if (!reduce && dragging) { // ドラッグの横の動きで太陽を回す(右へドラッグすると太陽も右へ動く)
+        curTarget = Math.max(-1.2, Math.min(1.2, curTarget + (e.clientX - lpx) * .003));
+        dirty = true;
       }
     }
     lpx = e.clientX; lpy = e.clientY;
@@ -212,10 +218,10 @@
     return p > BURST_D ? { on: false, p: 0 } : { on: true, p };
   }
  
-  /* ---------- スクロールで太陽が回り、手を離すと現在時刻の位置へ戻る ---------- */
+  /* ---------- スクロールで地球が横に回り、手を離すと元に戻る ---------- */
   // ページが実際にスクロールしなくても動くよう、wheel / touch で入力を受ける
   let sunOff = 0, sunTarget = 0, released = true, touching = false, inputT = -1e9, touchY = 0, lastSY = scrollY;
-  let latOff = 0, latTarget = 0, touchX = 0, lastSX = scrollX; // 横スクロールで動く縦方向の視点
+  let scrOff = 0, scrTarget = 0, touchX = 0, lastSX = scrollX; // 横スクロールで動く縦方向の視点
   function nudge(d) {
     if (reduce) return;
     sunTarget += d; released = false; inputT = performance.now(); dirty = true;
@@ -223,7 +229,7 @@
   // 横スクロール: 地球を見る縦方向の角度(緯度)を動かす。右へ進むと北側が見えてくる
   function tilt(d) {
     if (reduce) return;
-    latTarget = Math.max(-1.3, Math.min(1.3, latTarget + d));
+    scrTarget = Math.max(-1.3, Math.min(1.3, scrTarget + d));
     released = false; inputT = performance.now(); dirty = true;
   }
   addEventListener('wheel', e => { nudge(e.deltaY * .004); tilt(e.deltaX * .004); }, { passive: true });
@@ -268,9 +274,9 @@
   function draw(t) {
     const R = Math.min(W, H) * .44;
     const cx = W / 2 + ox, cy = H / 2 + oy;
-    const vlon = view.lon + lonOff; // カーソルの横移動分の回転を加える
+    const vlon = view.lon - sunOff; // スクロール分だけ地球を横に回す
     const cl = Math.cos(vlon), sl = Math.sin(vlon);
-    const vlat = Math.max(-85 * RAD, Math.min(85 * RAD, view.lat + latOff)); // 横スクロール分の傾きを加える
+    const vlat = Math.max(-85 * RAD, Math.min(85 * RAD, view.lat + scrOff)); // 横スクロール分の傾きを加える
     const cp = Math.cos(vlat), sp = Math.sin(vlat);
     const rot = (lat, lon) => {
       const x = Math.cos(lat) * Math.sin(lon), y = Math.sin(lat), z = Math.cos(lat) * Math.cos(lon);
@@ -280,7 +286,7 @@
  
     // 太陽(時刻)
     const sun = sunPoint(nowMs());
-    sun.lon += sunOff; // スクロール分だけ太陽を回す
+    sun.lon += curOff; // カーソルの横移動分だけ太陽を回す
     const [sx, sy, sz] = rot(sun.lat, sun.lon);
     const orbit = Math.min(R * 1.3, Math.min(W, H) / 2 * .96);
     const sunX = cx + sx * orbit, sunY = cy - sy * orbit;
@@ -370,21 +376,21 @@
       view.lon += dLon * e; view.lat += dLat * e; dirty = true;
     }
  
-    // 手が離れたら(入力が止まったら)現在時刻の位置へなめらかに戻る
+    // 手が離れたら(入力が止まったら)元の位置へなめらかに戻る
     if (!touching && performance.now() - inputT > 150) {
       if (!released) { // 何周も回っていても近い向きで戻るよう、周回分を先に取り除く
         const n = Math.round(sunTarget / TAU) * TAU; sunTarget -= n; sunOff -= n; released = true;
       }
-      sunTarget = 0; latTarget = 0;
+      sunTarget = 0; scrTarget = 0;
     }
     sunOff += (sunTarget - sunOff) * (1 - Math.exp(-dt * (released ? 3 : 12)));
     if (Math.abs(sunTarget - sunOff) < 1e-4) sunOff = sunTarget; else dirty = true;
-    latOff += (latTarget - latOff) * (1 - Math.exp(-dt * (released ? 3 : 12)));
-    if (Math.abs(latTarget - latOff) < 1e-4) latOff = latTarget; else dirty = true;
-    // カーソルが止まったら元の経度へゆっくり戻る
-    if (performance.now() - lonT > 150) lonTarget = 0;
-    lonOff += (lonTarget - lonOff) * (1 - Math.exp(-dt * (lonTarget === 0 ? 2.5 : 10)));
-    if (Math.abs(lonTarget - lonOff) < 1e-4) lonOff = lonTarget; else dirty = true;
+    scrOff += (scrTarget - scrOff) * (1 - Math.exp(-dt * (released ? 3 : 12)));
+    if (Math.abs(scrTarget - scrOff) < 1e-4) scrOff = scrTarget; else dirty = true;
+    // ドラッグを離したら太陽が現在時刻の位置へゆっくり戻る
+    if (!dragging) curTarget = 0;
+    curOff += (curTarget - curOff) * (1 - Math.exp(-dt * (curTarget === 0 ? 2.5 : 10)));
+    if (Math.abs(curTarget - curOff) < 1e-4) curOff = curTarget; else dirty = true;
  
     step(dt);
     if (dirty || energy > .002 || Math.abs(ox) + Math.abs(oy) > .05 || burstState(t).on || t - lastDraw > (speed > 1 ? 40 : 1000)) {

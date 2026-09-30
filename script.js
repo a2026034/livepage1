@@ -155,6 +155,7 @@ window.addEventListener("keydown", event => {
   const ctx = canvas.getContext('2d');
   let cols = 0, rows = 0, grid = new Uint8Array(0), next = new Uint8Array(0);
   let dirty = true, last = 0, prev = null;
+  let pointerPressed = false, pointerDragging = false, shiftPressed = false;
 
   function resize() {
     const w = window.innerWidth, h = window.innerHeight;
@@ -189,10 +190,25 @@ window.addEventListener("keydown", event => {
 
   function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = 'rgba(67, 59, 59, 0.4)';
-    for (let y = 0; y < rows; y++)
-      for (let x = 0; x < cols; x++)
-        if (grid[y * cols + x]) ctx.fillRect(x * CELL, y * CELL, CELL, CELL);
+    if (pointerDragging || shiftPressed) {
+      ctx.font = 'bold 10px monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      for (let y = 0; y < rows; y++) {
+        for (let x = 0; x < cols; x++) {
+          const alive = grid[y * cols + x];
+          ctx.fillStyle = alive ? 'rgba(0, 0, 0, 0.9)' : 'rgba(255, 255, 255, 0.9)';
+          ctx.fillText(alive ? '1' : '0', x * CELL + CELL / 2, y * CELL + CELL / 2);
+        }
+      }
+    } else {
+      ctx.fillStyle = 'rgba(67, 59, 59, 0.4)';
+      for (let y = 0; y < rows; y++) {
+        for (let x = 0; x < cols; x++) {
+          if (grid[y * cols + x]) ctx.fillRect(x * CELL, y * CELL, CELL, CELL);
+        }
+      }
+    }
     dirty = false;
   }
 
@@ -212,9 +228,21 @@ window.addEventListener("keydown", event => {
     dirty = true;
   }
 
-  window.addEventListener('pointermove', e => paint(Math.floor(e.clientX / CELL), Math.floor(e.clientY / CELL)));
+  window.addEventListener('pointermove', e => {
+    if (pointerPressed) { pointerDragging = true; dirty = true; }
+    paint(Math.floor(e.clientX / CELL), Math.floor(e.clientY / CELL));
+  });
   window.addEventListener('pointerleave', () => { prev = null; });
-  window.addEventListener('pointerdown', () => { prev = null; });
+  window.addEventListener('pointerdown', () => { prev = null; pointerPressed = true; pointerDragging = false; dirty = true; });
+  window.addEventListener('pointerup', () => { pointerPressed = false; pointerDragging = false; dirty = true; });
+  window.addEventListener('pointercancel', () => { pointerPressed = false; pointerDragging = false; dirty = true; });
+  window.addEventListener('keydown', e => {
+    if (e.key === 'Shift') { shiftPressed = true; dirty = true; }
+  });
+  window.addEventListener('keyup', e => {
+    if (e.key === 'Shift') { shiftPressed = false; dirty = true; }
+  });
+  window.addEventListener('blur', () => { pointerPressed = false; pointerDragging = false; shiftPressed = false; dirty = true; });
   window.addEventListener('resize', resize);
 
   function loop(t) {
