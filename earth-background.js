@@ -84,6 +84,9 @@
   const px = new Float32Array(N), py = new Float32Array(N), pz = new Float32Array(N);
   const land = new Uint8Array(N);
   const jx = new Float32Array(N), jy = new Float32Array(N), ph = new Float32Array(N);
+  const dr = new Float32Array(N), spn = new Float32Array(N); // 弾ける距離 / 渦の向きと強さ
+  const dl = new Float32Array(N), ot = new Float32Array(N), bk = new Float32Array(N); // 点ごとの開始遅れ / 弾ける時間 / 戻る時間
+  const kx = new Float32Array(N), ky = new Float32Array(N), wb = new Float32Array(N); // 勝手な方向への飛び / ぶれ
   const GOLD = Math.PI * (3 - Math.sqrt(5));
   for (let i = 0; i < N; i++) {
     const y = 1 - 2 * (i + .5) / N;
@@ -94,6 +97,11 @@
     pz[i] = Math.cos(lat) * Math.cos(lon);
     land[i] = isLand(lon / RAD, lat / RAD) ? 1 : 0;
     jx[i] = Math.random() * 2 - 1; jy[i] = Math.random() * 2 - 1; ph[i] = Math.random() * TAU;
+    const r1 = Math.random();
+    dr[i] = .15 + r1 * r1 * 2.2;                                  // 少数の点だけ遠くまで飛ぶ
+    spn[i] = (Math.random() < .5 ? -1 : 1) * (.3 + Math.random() * .7); // 右回り・左回りがバラバラ
+    dl[i] = Math.random() * 700; ot[i] = 500 + Math.random() * 900; bk[i] = 1800 + Math.random() * 1800;
+    kx[i] = (Math.random() * 2 - 1) * .7; ky[i] = (Math.random() * 2 - 1) * .7; wb[i] = .5 + Math.random() * 2;
   }
 
   /* ---------- 色(昼側は暖色、夜側は寒色。明暗の境目はなめらか) ---------- */
@@ -184,6 +192,18 @@
     lpx = e.clientX; lpy = e.clientY;
   }, { passive: true });
 
+  /* ---------- 弾けて渦を巻いて戻る演出 ---------- */
+  // first: 最初に弾けるまで / cycle: 繰り返し間隔 / hold: 渦巻き (ms)。弾ける・戻る時間と開始遅れは点ごとにバラバラ
+  const BURST = { first: 4000, cycle: 15000, hold: 1800 };
+  const BURST_D = 700 + 1400 + BURST.hold + 3600;
+  const easeOut = x => 1 - Math.pow(1 - x, 3);
+  const easeInOut = x => x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+  function burstState(t) {
+    if (reduce || t < BURST.first) return { on: false, p: 0 };
+    const p = (t - BURST.first) % BURST.cycle;
+    return p > BURST_D ? { on: false, p: 0 } : { on: true, p };
+  }
+
   /* ---------- 描画 ---------- */
   let W, H, dpr, dirty = true;
   function resize() {
@@ -240,22 +260,45 @@
     ctx.beginPath(); ctx.arc(cx, cy, R, 0, TAU); ctx.stroke();
 
     // 点
+    const bs = burstState(t), bp = bs.p, u = bs.on ? bp / BURST_D : 0;
     const shim = reduce ? 0 : Math.min(1, shakeS / 6) * 3.5 + energy * 1.5;
     const landR = R * .0105, seaR = R * .0038;
     for (let i = 0; i < N; i++) {
       const x = px[i], y = py[i], z = pz[i];
       const x1 = x * cl - z * sl, z1 = x * sl + z * cl;
       const y2 = y * cp - z1 * sp, z2 = y * sp + z1 * cp;
-      if (z2 <= .02) continue;
+      const front = z2 > .02;
+      let bu = 0;
+      if (bs.on) {
+        const lp = bp - dl[i], o = ot[i], e1 = o + BURST.hold, e2 = e1 + bk[i];
+        if (lp > 0) bu = lp < o ? easeOut(lp / o) : lp < e1 ? 1 : lp < e2 ? 1 - easeInOut((lp - e1) / bk[i]) : 0;
+      }
+      if (!front && bu < .01) continue;
       let k = (x1 * sx + y2 * sy + z2 * sz + .12) / .42;
       k = k < 0 ? 0 : k > 1 ? 1 : k; k = k * k * (3 - 2 * k);
       const b = (k * (B - 1)) | 0;
-      let X = cx + x1 * R, Y = cy - y2 * R;
+
+      let X0 = x1, Y0 = y2;
+      if (bu > 0) {
+        const p = 1 + bu * dr[i];                         // 外へ弾ける(距離はバラバラ)
+        const a = bu * spn[i] * (2 + 8 * u);              // 向きも速さもバラバラに回る
+        const ca = Math.cos(a), sa = Math.sin(a);
+        const xr = x1 * p, yr = y2 * p;
+        const wob = bu * .07 * Math.sin(t * .006 * wb[i] + ph[i]);  // 飛んでいる間のぶれ
+        X0 = xr * ca - yr * sa + bu * kx[i] + wob;
+        Y0 = xr * sa + yr * ca + bu * ky[i] + wob * Math.cos(ph[i]);
+      }
+      let X = cx + X0 * R, Y = cy - Y0 * R;
       if (shim > .01) { const w = Math.sin(t * .04 + ph[i]); X += jx[i] * shim * w; Y += jy[i] * shim * w; }
+
       const isL = land[i] === 1;
       ctx.fillStyle = isL ? landS[b] : seaS[b];
-      ctx.beginPath(); ctx.arc(X, Y, (isL ? landR : seaR) * (.55 + .45 * z2), 0, TAU); ctx.fill();
+      if (bu > 0) ctx.globalAlpha = front ? 1 : .45;  // 裏側の点は弾けている間だけ薄く見える
+      ctx.beginPath();
+      ctx.arc(X, Y, (isL ? landR : seaR) * (.55 + .45 * Math.max(z2, 0)), 0, TAU);
+      ctx.fill();
     }
+    ctx.globalAlpha = 1;
 
     // 現在地のしるし
     const [mx, my, mz] = rot(loc.lat, loc.lon);
@@ -288,7 +331,7 @@
     }
 
     step(dt);
-    if (dirty || energy > .002 || Math.abs(ox) + Math.abs(oy) > .05 || t - lastDraw > (speed > 1 ? 40 : 1000)) {
+    if (dirty || energy > .002 || Math.abs(ox) + Math.abs(oy) > .05 || burstState(t).on || t - lastDraw > (speed > 1 ? 40 : 1000)) {
       draw(t); lastDraw = t; dirty = false;
     }
     requestAnimationFrame(frame);
