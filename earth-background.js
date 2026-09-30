@@ -1,10 +1,11 @@
+
 (() => {
   const canvas = document.getElementById('earth-bg');
   const ctx = canvas.getContext('2d');
   const RAD = Math.PI / 180;
   const TAU = Math.PI * 2;
   const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
-
+ 
   /* ---------- 時刻(テスト用: ?speed=3600 で早送り、?time=2026-09-29T18:00 で時刻指定) ---------- */
   const params = new URLSearchParams(location.search);
   const speed = Number(params.get('speed')) || 1;
@@ -14,7 +15,7 @@
     const el = performance.now() - t0;
     return isNaN(fixed) ? Date.now() + el * (speed - 1) : fixed + el * speed;
   };
-
+ 
   /* ---------- 大陸のごく簡略なポリゴン [経度, 緯度] ---------- */
   const LAND = [
     // 北アメリカ
@@ -78,7 +79,7 @@
     }
     return false;
   }
-
+ 
   /* ---------- 球面上の点(フィボナッチ格子) ---------- */
   const N = 9000;
   const px = new Float32Array(N), py = new Float32Array(N), pz = new Float32Array(N);
@@ -98,12 +99,12 @@
     land[i] = isLand(lon / RAD, lat / RAD) ? 1 : 0;
     jx[i] = Math.random() * 2 - 1; jy[i] = Math.random() * 2 - 1; ph[i] = Math.random() * TAU;
     const r1 = Math.random();
-    dr[i] = .15 + r1 * r1 * 2.2;                                  // 少数の点だけ遠くまで飛ぶ
+    dr[i] = .1 + r1 * r1 * 1.0;                                  // 少数の点だけ遠くまで飛ぶ
     spn[i] = (Math.random() < .5 ? -1 : 1) * (.3 + Math.random() * .7); // 右回り・左回りがバラバラ
-    dl[i] = Math.random() * 700; ot[i] = 500 + Math.random() * 900; bk[i] = 1800 + Math.random() * 1800;
-    kx[i] = (Math.random() * 2 - 1) * .7; ky[i] = (Math.random() * 2 - 1) * .7; wb[i] = .5 + Math.random() * 2;
+    dl[i] = Math.random() * 350; ot[i] = 300 + Math.random() * 400; bk[i] = 900 + Math.random() * 900;
+    kx[i] = (Math.random() * 2 - 1) * .3; ky[i] = (Math.random() * 2 - 1) * .3; wb[i] = .5 + Math.random() * 2;
   }
-
+ 
   /* ---------- 色(昼側は暖色、夜側は寒色。明暗の境目はなめらか) ---------- */
   const B = 24, landS = [], seaS = [];
   const mix = (a, b, t) => a + (b - a) * t;
@@ -112,7 +113,7 @@
     landS.push(`rgba(${mix(120,255,t)|0},${mix(150,224,t)|0},${mix(235,165,t)|0},${mix(.30,.62,t).toFixed(3)})`);
     seaS.push(`rgba(${mix(110,150,t)|0},${mix(140,190,t)|0},${mix(220,255,t)|0},${mix(.05,.15,t).toFixed(3)})`);
   }
-
+ 
   /* ---------- 太陽の位置(直下点の緯度・経度) ---------- */
   function sunPoint(ms) {
     const d = ms / 86400000 + 2440587.5 - 2451545.0;
@@ -126,7 +127,7 @@
     const lon = Math.atan2(Math.sin(ra - gmst), Math.cos(ra - gmst));
     return { lat, lon };
   }
-
+ 
   /* ---------- 現在地 ---------- */
   // 取得できるまではタイムゾーンから経度だけ推定し、取得できたらそこへ回転する
   const view = { lat: 25 * RAD, lon: -new Date().getTimezoneOffset() / 4 * RAD };
@@ -137,12 +138,12 @@
       () => {}, { maximumAge: 3600000, timeout: 10000 }
     );
   }
-
+ 
   /* ---------- 振動(ばね + 揺らぎ) ---------- */
   let ox = 0, oy = 0, vx = 0, vy = 0, energy = 0, shakeS = 0;
   let inX = 0, inY = 0, shakeIn = 0, lastEvt = -1e9;
   const K = 120, C = 5, A = 90; // ばね定数 / 減衰 / 加速度の効き
-
+ 
   function kick(dx, dy) {
     if (reduce) return;
     vx += dx; vy += dy;
@@ -159,7 +160,7 @@
     shakeS += ((age < 150 ? shakeIn : 0) - shakeS) * Math.min(1, dt * 8);
     energy = Math.min(1, (Math.hypot(ox, oy) + Math.hypot(vx, vy) * .05) / 20);
   }
-
+ 
   // 端末の動き(スマホ・タブレット)
   const grav = { x: 0, y: 0, z: 0 };
   function onMotion(e) {
@@ -187,15 +188,22 @@
   }
   // PC向けの代替: ブラウザウィンドウを動かす / マウスを動かす
   let lsx = screenX, lsy = screenY, lpx = null, lpy = null;
+  let lonOff = 0, lonTarget = 0, lonT = -1e9; // カーソルの横移動で回す経度 / 目標 / 最後に動いた時刻
   addEventListener('pointermove', e => {
-    if (lpx !== null) kick((e.clientX - lpx) * 1.5, (e.clientY - lpy) * 1.5);
+    if (lpx !== null) {
+      kick((e.clientX - lpx) * .4, (e.clientY - lpy) * .4); // 全体の揺れは小さめ
+      if (!reduce) { // 横の動きで地球を回す(右へ動かすと表面も右へ流れる)
+        lonTarget = Math.max(-1.2, Math.min(1.2, lonTarget - (e.clientX - lpx) * .003));
+        lonT = performance.now(); dirty = true;
+      }
+    }
     lpx = e.clientX; lpy = e.clientY;
   }, { passive: true });
-
+ 
   /* ---------- 弾けて渦を巻いて戻る演出 ---------- */
   // first: 最初に弾けるまで / cycle: 繰り返し間隔 / hold: 渦巻き (ms)。弾ける・戻る時間と開始遅れは点ごとにバラバラ
-  const BURST = { first: 4000, cycle: 15000, hold: 1800 };
-  const BURST_D = 700 + 1400 + BURST.hold + 3600;
+  const BURST = { first: 6000, cycle: 40000, hold: 800 };
+  const BURST_D = 350 + 700 + BURST.hold + 1800; // 開始遅れ + 弾ける + 渦巻き + 戻る(各最大)
   const easeOut = x => 1 - Math.pow(1 - x, 3);
   const easeInOut = x => x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
   function burstState(t) {
@@ -203,7 +211,36 @@
     const p = (t - BURST.first) % BURST.cycle;
     return p > BURST_D ? { on: false, p: 0 } : { on: true, p };
   }
-
+ 
+  /* ---------- スクロールで太陽が回り、手を離すと現在時刻の位置へ戻る ---------- */
+  // ページが実際にスクロールしなくても動くよう、wheel / touch で入力を受ける
+  let sunOff = 0, sunTarget = 0, released = true, touching = false, inputT = -1e9, touchY = 0, lastSY = scrollY;
+  let latOff = 0, latTarget = 0, touchX = 0, lastSX = scrollX; // 横スクロールで動く縦方向の視点
+  function nudge(d) {
+    if (reduce) return;
+    sunTarget += d; released = false; inputT = performance.now(); dirty = true;
+  }
+  // 横スクロール: 地球を見る縦方向の角度(緯度)を動かす。右へ進むと北側が見えてくる
+  function tilt(d) {
+    if (reduce) return;
+    latTarget = Math.max(-1.3, Math.min(1.3, latTarget + d));
+    released = false; inputT = performance.now(); dirty = true;
+  }
+  addEventListener('wheel', e => { nudge(e.deltaY * .004); tilt(e.deltaX * .004); }, { passive: true });
+  addEventListener('touchstart', e => { touching = true; touchY = e.touches[0].clientY; touchX = e.touches[0].clientX; inputT = performance.now(); }, { passive: true });
+  addEventListener('touchmove', e => {
+    const y = e.touches[0].clientY, x = e.touches[0].clientX;
+    nudge((touchY - y) * .008); tilt((touchX - x) * .006);
+    touchY = y; touchX = x;
+  }, { passive: true });
+  addEventListener('touchend', () => { touching = false; inputT = performance.now(); }, { passive: true });
+  addEventListener('touchcancel', () => { touching = false; inputT = performance.now(); }, { passive: true });
+  // スクロールバーのドラッグやキー操作など(wheel/touchと二重に数えないようにする)
+  addEventListener('scroll', () => {
+    const dy = scrollY - lastSY, dx = scrollX - lastSX; lastSY = scrollY; lastSX = scrollX;
+    if (performance.now() - inputT > 300) { nudge(dy * .004); tilt(dx * .004); }
+  }, { passive: true });
+ 
   /* ---------- 描画 ---------- */
   let W, H, dpr, dirty = true;
   function resize() {
@@ -215,7 +252,7 @@
   }
   addEventListener('resize', resize);
   resize();
-
+ 
   function drawSun(x, y, R, front) {
     const glow = R * .34, a = front ? 1 : .75;
     const g = ctx.createRadialGradient(x, y, 0, x, y, glow);
@@ -227,26 +264,29 @@
     ctx.fillStyle = `rgba(255,232,180,${.9 * a})`;
     ctx.beginPath(); ctx.arc(x, y, R * .04, 0, TAU); ctx.fill();
   }
-
+ 
   function draw(t) {
     const R = Math.min(W, H) * .44;
     const cx = W / 2 + ox, cy = H / 2 + oy;
-    const cl = Math.cos(view.lon), sl = Math.sin(view.lon);
-    const cp = Math.cos(view.lat), sp = Math.sin(view.lat);
+    const vlon = view.lon + lonOff; // カーソルの横移動分の回転を加える
+    const cl = Math.cos(vlon), sl = Math.sin(vlon);
+    const vlat = Math.max(-85 * RAD, Math.min(85 * RAD, view.lat + latOff)); // 横スクロール分の傾きを加える
+    const cp = Math.cos(vlat), sp = Math.sin(vlat);
     const rot = (lat, lon) => {
       const x = Math.cos(lat) * Math.sin(lon), y = Math.sin(lat), z = Math.cos(lat) * Math.cos(lon);
       const x1 = x * cl - z * sl, z1 = x * sl + z * cl;
       return [x1, y * cp - z1 * sp, y * sp + z1 * cp];
     };
-
+ 
     // 太陽(時刻)
     const sun = sunPoint(nowMs());
+    sun.lon += sunOff; // スクロール分だけ太陽を回す
     const [sx, sy, sz] = rot(sun.lat, sun.lon);
     const orbit = Math.min(R * 1.3, Math.min(W, H) / 2 * .96);
     const sunX = cx + sx * orbit, sunY = cy - sy * orbit;
-
+ 
     ctx.clearRect(0, 0, W, H);
-
+ 
     if (sz < 0) { // 地球の裏側にいるとき: 光を描いてから地球の円で隠す
       drawSun(sunX, sunY, R, false);
       ctx.globalCompositeOperation = 'destination-out';
@@ -254,11 +294,11 @@
       ctx.beginPath(); ctx.arc(cx, cy, R, 0, TAU); ctx.fill();
       ctx.globalCompositeOperation = 'source-over';
     }
-
+ 
     // 輪郭
     ctx.strokeStyle = 'rgba(150,190,255,.12)'; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.arc(cx, cy, R, 0, TAU); ctx.stroke();
-
+ 
     // 点
     const bs = burstState(t), bp = bs.p, u = bs.on ? bp / BURST_D : 0;
     const shim = reduce ? 0 : Math.min(1, shakeS / 6) * 3.5 + energy * 1.5;
@@ -277,20 +317,20 @@
       let k = (x1 * sx + y2 * sy + z2 * sz + .12) / .42;
       k = k < 0 ? 0 : k > 1 ? 1 : k; k = k * k * (3 - 2 * k);
       const b = (k * (B - 1)) | 0;
-
+ 
       let X0 = x1, Y0 = y2;
       if (bu > 0) {
         const p = 1 + bu * dr[i];                         // 外へ弾ける(距離はバラバラ)
-        const a = bu * spn[i] * (2 + 8 * u);              // 向きも速さもバラバラに回る
+        const a = bu * spn[i] * (1 + 4 * u);              // 向きも速さもバラバラに回る
         const ca = Math.cos(a), sa = Math.sin(a);
         const xr = x1 * p, yr = y2 * p;
-        const wob = bu * .07 * Math.sin(t * .006 * wb[i] + ph[i]);  // 飛んでいる間のぶれ
+        const wob = bu * .04 * Math.sin(t * .006 * wb[i] + ph[i]);  // 飛んでいる間のぶれ
         X0 = xr * ca - yr * sa + bu * kx[i] + wob;
         Y0 = xr * sa + yr * ca + bu * ky[i] + wob * Math.cos(ph[i]);
       }
       let X = cx + X0 * R, Y = cy - Y0 * R;
       if (shim > .01) { const w = Math.sin(t * .04 + ph[i]); X += jx[i] * shim * w; Y += jy[i] * shim * w; }
-
+ 
       const isL = land[i] === 1;
       ctx.fillStyle = isL ? landS[b] : seaS[b];
       if (bu > 0) ctx.globalAlpha = front ? 1 : .45;  // 裏側の点は弾けている間だけ薄く見える
@@ -299,7 +339,7 @@
       ctx.fill();
     }
     ctx.globalAlpha = 1;
-
+ 
     // 現在地のしるし
     const [mx, my, mz] = rot(loc.lat, loc.lon);
     if (mz > 0) {
@@ -308,20 +348,20 @@
       ctx.fillStyle = 'rgba(255,240,210,.8)';
       ctx.beginPath(); ctx.arc(cx + mx * R, cy - my * R, R * .0055, 0, TAU); ctx.fill();
     }
-
+ 
     if (sz >= 0) drawSun(sunX, sunY, R, true); // 手前にいるとき
   }
-
+ 
   /* ---------- ループ(静止中は1秒ごとにだけ再描画して省電力) ---------- */
   let last = performance.now(), lastDraw = 0;
   function frame(t) {
     const dt = Math.min(.05, (t - last) / 1000); last = t;
-
+ 
     if (!reduce && (screenX !== lsx || screenY !== lsy)) {
       kick(-(screenX - lsx) * 12, -(screenY - lsy) * 12);
       lsx = screenX; lsy = screenY;
     }
-
+ 
     // 現在地へ向けてなめらかに回転
     let dLon = loc.lon - view.lon; dLon = Math.atan2(Math.sin(dLon), Math.cos(dLon));
     const dLat = loc.lat - view.lat;
@@ -329,7 +369,23 @@
       const e = 1 - Math.exp(-dt * 3);
       view.lon += dLon * e; view.lat += dLat * e; dirty = true;
     }
-
+ 
+    // 手が離れたら(入力が止まったら)現在時刻の位置へなめらかに戻る
+    if (!touching && performance.now() - inputT > 150) {
+      if (!released) { // 何周も回っていても近い向きで戻るよう、周回分を先に取り除く
+        const n = Math.round(sunTarget / TAU) * TAU; sunTarget -= n; sunOff -= n; released = true;
+      }
+      sunTarget = 0; latTarget = 0;
+    }
+    sunOff += (sunTarget - sunOff) * (1 - Math.exp(-dt * (released ? 3 : 12)));
+    if (Math.abs(sunTarget - sunOff) < 1e-4) sunOff = sunTarget; else dirty = true;
+    latOff += (latTarget - latOff) * (1 - Math.exp(-dt * (released ? 3 : 12)));
+    if (Math.abs(latTarget - latOff) < 1e-4) latOff = latTarget; else dirty = true;
+    // カーソルが止まったら元の経度へゆっくり戻る
+    if (performance.now() - lonT > 150) lonTarget = 0;
+    lonOff += (lonTarget - lonOff) * (1 - Math.exp(-dt * (lonTarget === 0 ? 2.5 : 10)));
+    if (Math.abs(lonTarget - lonOff) < 1e-4) lonOff = lonTarget; else dirty = true;
+ 
     step(dt);
     if (dirty || energy > .002 || Math.abs(ox) + Math.abs(oy) > .05 || burstState(t).on || t - lastDraw > (speed > 1 ? 40 : 1000)) {
       draw(t); lastDraw = t; dirty = false;

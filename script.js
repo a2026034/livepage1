@@ -189,7 +189,7 @@ window.addEventListener("keydown", event => {
 
   function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = '#000';
+    ctx.fillStyle = 'rgba(67, 59, 59, 0.4)';
     for (let y = 0; y < rows; y++)
       for (let x = 0; x < cols; x++)
         if (grid[y * cols + x]) ctx.fillRect(x * CELL, y * CELL, CELL, CELL);
