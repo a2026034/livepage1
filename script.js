@@ -12,6 +12,13 @@ let visibleCount = 0;
 let currentTarget = null;
 const visibleCharacters = [];
 let bootComplete = false;
+let paragraphSoundBuffer = [];
+let paragraphLoopTimer = null;
+let beatLayerCount = 0;
+let beatPhase = 0;
+let generationCount = 0;
+let allTextDisplayed = false;
+let lifeDensity = 0;
 
 const bootFrames = [
   ["[=]", "起動中"],
@@ -69,10 +76,186 @@ function showBootFrame() {
 
 const bootSound = new Audio("sounds/Dial_up_modem_noises.ogg");
 const bootAudioContext = new AudioContext();
+const masterGain = bootAudioContext.createGain();
+masterGain.gain.value = 0.7;
 const bootAudioGain = bootAudioContext.createGain();
 bootAudioGain.gain.value = 1.0;
+const keyAudioGain = bootAudioContext.createGain();
+keyAudioGain.gain.value = 0.5;
 bootAudioContext.createMediaElementSource(bootSound).connect(bootAudioGain);
-bootAudioGain.connect(bootAudioContext.destination);
+bootAudioGain.connect(masterGain);
+keyAudioGain.connect(masterGain);
+masterGain.connect(bootAudioContext.destination);
+
+const keySoundProfiles = {
+  " ": { type: "triangle", frequency: 180, endFrequency: 140, duration: 0.18, filter: 900 },
+  p: { type: "sine", frequency: 500, endFrequency: 700, duration: 0.5, filter: 3000 },
+  s: { type: "sawtooth", frequency: 4000, endFrequency: 620, duration: 0.3, filter: 3500 },
+  t: { type: "triangle", frequency: 500, endFrequency: 500, duration: 0.15, filter: 1100 },
+  c: { type: "square", frequency: 1000, endFrequency: 2600, duration: 0.1, filter: 4000 },
+  l: { type: "triangle", frequency: 450, endFrequency: 3000, duration: 0.9999, filter: 9999 },
+  d: { type: "sine", frequency: 500, endFrequency: 2200, duration: 0.16, filter: 5000 },
+  j: { type: "sawtooth", frequency: 5000, endFrequency: 733, duration: 0.19, filter: 5000 },
+  v: { type: "triangle", frequency: 993, endFrequency: 784, duration: 0.5, filter: 2100 },
+  n: { type: "sine", frequency: 2000, endFrequency: 60, duration: 0.22, filter: 70000 },
+  m: { type: "square", frequency: 262, endFrequency: 262, duration: 0.11, filter: 5000 }
+};
+
+function playKeySound(key) {
+  const context = bootAudioContext;
+  const start = context.currentTime;
+  const oscillator = context.createOscillator();
+  const filter = context.createBiquadFilter();
+  const gain = context.createGain();
+  const normalizedKey = key.toLowerCase();
+  const profile = keySoundProfiles[normalizedKey];
+
+  if (key === "Backspace") {
+    oscillator.type = "sawtooth";
+    oscillator.frequency.setValueAtTime(760, start);
+    oscillator.frequency.exponentialRampToValueAtTime(110, start + 0.13);
+    filter.type = "lowpass";
+    filter.frequency.setValueAtTime(2600, start);
+    filter.frequency.exponentialRampToValueAtTime(500, start + 0.13);
+    gain.gain.setValueAtTime(0.001, start);
+    gain.gain.exponentialRampToValueAtTime(0.75, start + 0.012);
+    gain.gain.exponentialRampToValueAtTime(0.001, start + 0.14);
+    oscillator.connect(filter).connect(gain).connect(keyAudioGain);
+    oscillator.start(start);
+    oscillator.stop(start + 0.15);
+    return;
+  }
+
+  if (/^[0-9]$/.test(key)) {
+    oscillator.type = "square";
+    oscillator.frequency.setValueAtTime(1500 + Number(key) * 35, start);
+    filter.type = "highpass";
+    filter.frequency.value = 900;
+    gain.gain.setValueAtTime(0.001, start);
+    gain.gain.exponentialRampToValueAtTime(0.65, start + 0.003);
+    gain.gain.exponentialRampToValueAtTime(0.001, start + 0.045);
+    oscillator.connect(filter).connect(gain).connect(keyAudioGain);
+    oscillator.start(start);
+    oscillator.stop(start + 0.05);
+    return;
+  }
+
+  const selectedProfile = profile || keySoundProfiles.t;
+  oscillator.type = selectedProfile.type;
+  oscillator.frequency.setValueAtTime(selectedProfile.frequency, start);
+  oscillator.frequency.exponentialRampToValueAtTime(selectedProfile.endFrequency, start + selectedProfile.duration);
+  filter.type = "lowpass";
+  filter.frequency.value = selectedProfile.filter;
+  gain.gain.setValueAtTime(0.001, start);
+  gain.gain.exponentialRampToValueAtTime(0.55, start + 0.008);
+  gain.gain.exponentialRampToValueAtTime(0.001, start + selectedProfile.duration);
+  oscillator.connect(filter).connect(gain).connect(keyAudioGain);
+  oscillator.start(start);
+  oscillator.stop(start + selectedProfile.duration + 0.01);
+}
+
+function getKeySoundDuration(key) {
+  if (key === "Backspace") return 0.15;
+  if (/^[0-9]$/.test(key)) return 0.05;
+  const normalizedKey = key === " " ? " " : key.toLowerCase();
+  const profile = keySoundProfiles[normalizedKey] || keySoundProfiles.t;
+  return profile.duration + 0.02;
+}
+
+function recordParagraphSound(key, event) {
+  if (!key) return;
+  if (key === "Enter") return;
+  if (event && (event.ctrlKey || event.metaKey || event.altKey)) return;
+  if (["Shift", "Control", "Alt", "Meta", "CapsLock", "Tab", "Escape"].includes(key)) return;
+  if (key.length !== 1 && key !== "Backspace") return;
+  paragraphSoundBuffer.push(key);
+}
+
+function playParagraphLoop() {
+  if (!paragraphSoundBuffer.length) return;
+
+  const sequence = paragraphSoundBuffer.slice();
+  const sequenceDuration = sequence.reduce((total, key) => total + getKeySoundDuration(key), 0);
+  const loopPeriod = Math.max(sequenceDuration, 0.1);
+
+  if (paragraphLoopTimer) {
+    window.clearInterval(paragraphLoopTimer);
+  }
+
+  const scheduleSequence = () => {
+    let elapsed = 0;
+    sequence.forEach(key => {
+      window.setTimeout(() => playKeySound(key), elapsed * 1000);
+      elapsed += getKeySoundDuration(key);
+    });
+  };
+
+  scheduleSequence();
+  paragraphLoopTimer = window.setInterval(scheduleSequence, loopPeriod * 1000);
+}
+
+function refreshBeatLayer() {
+  beatLayerCount = Math.min(Math.max(beatLayerCount, 1), 8);
+  if (beatLayerCount > 0) {
+    masterGain.gain.value = 0.18 + beatLayerCount * 0.04;
+  }
+}
+
+function triggerBeatPulse() {
+  if (!bootAudioContext) return;
+  const now = bootAudioContext.currentTime;
+  const densityFactor = Math.min(1, lifeDensity || 0);
+  const baseFreq = 48 + densityFactor * 120 + beatLayerCount * 8;
+  const osc = bootAudioContext.createOscillator();
+  const gain = bootAudioContext.createGain();
+  const filter = bootAudioContext.createBiquadFilter();
+  osc.type = "triangle";
+  osc.frequency.setValueAtTime(baseFreq, now);
+  filter.type = "lowpass";
+  filter.frequency.setValueAtTime(300 + densityFactor * 1800 + beatLayerCount * 120, now);
+  gain.gain.setValueAtTime(0.0001, now);
+  gain.gain.exponentialRampToValueAtTime(0.12 + densityFactor * 0.1, now + 0.008);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.15 + beatLayerCount * 0.01);
+  osc.connect(filter).connect(gain).connect(masterGain);
+  osc.start(now);
+  osc.stop(now + 0.16 + beatLayerCount * 0.015);
+
+  if ((beatPhase + 1) % 4 === 0) {
+    const clickOsc = bootAudioContext.createOscillator();
+    const clickGain = bootAudioContext.createGain();
+    clickOsc.type = "square";
+    clickOsc.frequency.setValueAtTime(1100 + densityFactor * 2200, now);
+    clickGain.gain.setValueAtTime(0.0001, now);
+    clickGain.gain.exponentialRampToValueAtTime(0.06, now + 0.004);
+    clickGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.04);
+    clickOsc.connect(clickGain).connect(masterGain);
+    clickOsc.start(now);
+    clickOsc.stop(now + 0.05);
+  }
+
+  beatPhase = (beatPhase + 1) % 16;
+}
+
+function triggerCellSeed(x, y) {
+  const now = bootAudioContext.currentTime;
+  const osc = bootAudioContext.createOscillator();
+  const gain = bootAudioContext.createGain();
+  const filter = bootAudioContext.createBiquadFilter();
+  const xNorm = x / Math.max(1, window.innerWidth / 12);
+  const yNorm = 1 - y / Math.max(1, window.innerHeight / 12);
+  const pitch = 200 + xNorm * 500 + yNorm * 300 + lifeDensity * 160;
+  osc.type = "sine";
+  osc.frequency.setValueAtTime(pitch, now);
+  filter.type = "bandpass";
+  filter.frequency.setValueAtTime(600 + lifeDensity * 2600, now);
+  gain.gain.setValueAtTime(0.0001, now);
+  gain.gain.exponentialRampToValueAtTime(0.05 + lifeDensity * 0.08, now + 0.01);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.2);
+  osc.connect(filter).connect(gain).connect(masterGain);
+  osc.start(now);
+  osc.stop(now + 0.22);
+}
+
 let bootSoundStarted = false;
 let bootSoundPending = false;
 
@@ -110,6 +293,10 @@ function appendNextCharacter() {
   visibleCharacters.push(character);
   setCurrentTarget(nextCharacter.target);
   visibleCount++;
+  if (visibleCount >= characters.length && !allTextDisplayed) {
+    allTextDisplayed = true;
+    playParagraphLoop();
+  }
   return true;
 }
 
@@ -117,8 +304,12 @@ setCurrentTarget(targets[0]);
 
 window.addEventListener("keydown", event => {
   if (!bootComplete) return;
+
   if (event.key === "Enter") {
     event.preventDefault();
+    playKeySound(event.key);
+    beatLayerCount = Math.min(beatLayerCount + 1, 8);
+    refreshBeatLayer();
     if (!currentTarget) return;
 
     const currentLine = currentTarget.closest("tr") || currentTarget;
@@ -132,6 +323,8 @@ window.addEventListener("keydown", event => {
 
   if (event.key === "Backspace") {
     event.preventDefault();
+    recordParagraphSound(event.key, event);
+    playKeySound(event.key);
     if (visibleCount > 0) {
       visibleCount--;
       visibleCharacters.pop().remove();
@@ -144,6 +337,12 @@ window.addEventListener("keydown", event => {
     return;
   }
 
+  if (event.code === "Space") {
+    event.preventDefault();
+  }
+
+  recordParagraphSound(event.key, event);
+  playKeySound(event.key === " " ? " " : event.key);
   appendNextCharacter();
 });
 
@@ -185,6 +384,13 @@ window.addEventListener("keydown", event => {
       }
     }
     [grid, next] = [next, grid];
+    let living = 0;
+    for (let i = 0; i < grid.length; i++) if (grid[i]) living++;
+    lifeDensity = living / Math.max(1, grid.length);
+    generationCount++;
+    if (generationCount % 2 === 0) {
+      triggerBeatPulse();
+    }
     dirty = true;
   }
 
@@ -218,7 +424,13 @@ window.addEventListener("keydown", event => {
     const sx = x0 < cx ? 1 : -1, sy = y0 < cy ? 1 : -1;
     let err = dx + dy;
     for (;;) {
-      if (x0 >= 0 && x0 < cols && y0 >= 0 && y0 < rows) grid[y0 * cols + x0] = 1;
+      if (x0 >= 0 && x0 < cols && y0 >= 0 && y0 < rows) {
+        const idx = y0 * cols + x0;
+        if (!grid[idx]) {
+          grid[idx] = 1;
+          triggerCellSeed(x0 * CELL, y0 * CELL);
+        }
+      }
       if (x0 === cx && y0 === cy) break;
       const e2 = 2 * err;
       if (e2 >= dy) { err += dy; x0 += sx; }
