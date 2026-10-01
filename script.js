@@ -1,9 +1,20 @@
 const targets = Array.from(document.querySelectorAll("h1, h5, p, li, th, td, .typing"))
   .filter(target => !target.querySelector("h1, h5, p, li, th, td"));
-const paragraphSources = targets.map(target => target.textContent.trim());
+const musicParts = Array.from(document.querySelectorAll("[data-music-role]"))
+  .map(element => ({
+    role: element.dataset.musicRole,
+    text: element.textContent.trim(),
+    targetIndices: targets.flatMap((target, index) => element.contains(target) ? [index] : [])
+  }))
+  .filter(part => part.targetIndices.length > 0);
 const characters = targets.flatMap(target =>
   Array.from(target.textContent, character => ({ target, character }))
 );
+musicParts.forEach(part => {
+  const targetIndices = new Set(part.targetIndices);
+  part.endCharacterIndex = characters.reduce((end, character, index) =>
+    targetIndices.has(targets.indexOf(character.target)) ? index + 1 : end, 0);
+});
 targets.forEach(target => {
   target.textContent = "";
   target.classList.add("typing-target");
@@ -15,8 +26,8 @@ const visibleCharacters = [];
 let bootComplete = false;
 let paragraphSoundBuffer = [];
 let paragraphLoopTimer = null;
-let pendingMusicLayerCount = 1;
-let activeMusicLayerCount = 1;
+let pendingMusicLayerCount = 0;
+let activeMusicLayerCount = 0;
 let activeChordDensityBand = 0;
 let strudelInitPromise = null;
 let musicPlaying = false;
@@ -216,12 +227,10 @@ function getChordDensityBand(density) {
 
 function buildStrudelCode(layerCount, densityBand = getChordDensityBand(lifeDensity)) {
   const patterns = [];
-  const roles = ["bass", "drums", "ambience", "chords"];
 
-  for (let index = 0; index < layerCount; index++) {
-    const text = paragraphSources[index % paragraphSources.length] || "space";
+  for (const part of musicParts.slice(0, layerCount)) {
+    const { text, role } = part;
     const root = paragraphRoot(text);
-    const role = roles[index % roles.length];
     const slots = Array(16).fill("~");
 
     if (role === "bass") {
@@ -239,7 +248,7 @@ function buildStrudelCode(layerCount, densityBand = getChordDensityBand(lifeDens
       slots[0] = noteName(root + 24);
       slots[8] = noteName(root + 31);
       patterns.push(`note("${slots.join(" ")}").s("sine").lpf(900).room(0.8).gain(0.08)`);
-    } else {
+    } else if (role === "chords") {
       const third = root % 12 === 2 || root % 12 === 9 ? 3 : 4;
       const chordTones = [
         [0, third, 7],
@@ -260,58 +269,44 @@ function buildStrudelCode(layerCount, densityBand = getChordDensityBand(lifeDens
   return `setcpm(15.625); stack(${patterns.join(",")}).play()`;
 }
 
-function updateMusicButton() {
-  const button = document.getElementById("music-toggle");
-  button.textContent = musicPlaying ? "音楽を停止" : "音楽を開始";
-  button.setAttribute("aria-pressed", String(musicPlaying));
-}
+function startStrudel() {
+  if (strudelInitPromise) return strudelInitPromise;
+  if (typeof window.initStrudel !== "function") {
+    console.error("Strudelを読み込めません");
+    return Promise.resolve();
+  }
 
-async function startStrudel() {
-  if (!strudelInitPromise) {
-    if (typeof window.initStrudel !== "function") {
-      document.getElementById("music-toggle").textContent = "Strudelを読み込めません";
-      return;
+  strudelInitPromise = (async () => {
+    try {
+      await window.initStrudel({
+        prebake: () => window.samples("github:tidalcycles/dirt-samples")
+      });
+      musicPlaying = true;
+      activeMusicLayerCount = pendingMusicLayerCount;
+      activeChordDensityBand = getChordDensityBand(lifeDensity);
+      window.evaluate(buildStrudelCode(activeMusicLayerCount, activeChordDensityBand));
+    } catch (error) {
+      console.error("Strudelの初期化に失敗しました", error);
+      strudelInitPromise = null;
+      musicPlaying = false;
     }
-    strudelInitPromise = window.initStrudel({
-      prebake: () => window.samples("github:tidalcycles/dirt-samples")
-    });
-  }
-
-  try {
-    await strudelInitPromise;
-    musicPlaying = true;
-    activeMusicLayerCount = pendingMusicLayerCount;
-    activeChordDensityBand = getChordDensityBand(lifeDensity);
-    window.evaluate(buildStrudelCode(activeMusicLayerCount, activeChordDensityBand));
-    updateMusicButton();
-  } catch (error) {
-    console.error("Strudelの初期化に失敗しました", error);
-    strudelInitPromise = null;
-    musicPlaying = false;
-    updateMusicButton();
-  }
+  })();
+  return strudelInitPromise;
 }
 
 function syncMusicLayers() {
+  if (pendingMusicLayerCount === 0) return;
   const densityBand = getChordDensityBand(lifeDensity);
   if (pendingMusicLayerCount === activeMusicLayerCount && densityBand === activeChordDensityBand) return;
+  if (!musicPlaying) {
+    startStrudel();
+    return;
+  }
   activeMusicLayerCount = pendingMusicLayerCount;
   activeChordDensityBand = densityBand;
-  if (musicPlaying && typeof window.evaluate === "function") {
-    window.hush();
-    window.evaluate(buildStrudelCode(activeMusicLayerCount, activeChordDensityBand));
-  }
+  window.hush();
+  window.evaluate(buildStrudelCode(activeMusicLayerCount, activeChordDensityBand));
 }
-
-document.getElementById("music-toggle").addEventListener("click", () => {
-  if (musicPlaying) {
-    window.hush();
-    musicPlaying = false;
-    updateMusicButton();
-  } else {
-    startStrudel();
-  }
-});
 
 function triggerCellSeed(x, y) {
   const now = bootAudioContext.currentTime;
@@ -363,10 +358,6 @@ function appendNextCharacter() {
   if (visibleCount >= characters.length) return false;
 
   const nextCharacter = characters[visibleCount];
-  const targetIndex = targets.indexOf(nextCharacter.target);
-  if (targetIndex >= pendingMusicLayerCount) {
-    pendingMusicLayerCount = targetIndex + 1;
-  }
   const character = document.createElement("span");
   character.className = "typing-character";
   character.textContent = nextCharacter.character;
@@ -374,6 +365,11 @@ function appendNextCharacter() {
   visibleCharacters.push(character);
   setCurrentTarget(nextCharacter.target);
   visibleCount++;
+  const completedLayerCount = musicParts.filter(part => visibleCount >= part.endCharacterIndex).length;
+  if (completedLayerCount > pendingMusicLayerCount) {
+    pendingMusicLayerCount = completedLayerCount;
+    syncMusicLayers();
+  }
   if (visibleCount >= characters.length && !allTextDisplayed) {
     allTextDisplayed = true;
     playParagraphLoop();
@@ -434,7 +430,20 @@ window.addEventListener("keydown", event => {
   const ctx = canvas.getContext('2d');
   let cols = 0, rows = 0, grid = new Uint8Array(0), next = new Uint8Array(0);
   let dirty = true, last = 0, prev = null;
+  let cursorX = window.innerWidth / 2, cursorY = window.innerHeight / 2;
   let pointerPressed = false, pointerDragging = false, shiftPressed = false;
+  const letterPatterns = {
+    p: ['11110', '10001', '10001', '11110', '10000', '10000', '10000'],
+    s: ['01111', '10000', '10000', '01110', '00001', '00001', '11110'],
+    t: ['00100', '00100', '11111', '00100', '00100', '00100', '00011'],
+    c: ['01111', '10000', '10000', '10000', '10000', '10000', '01111'],
+    l: ['11000', '01000', '01000', '01000', '01000', '01000', '11100'],
+    d: ['00001', '00001', '01111', '10001', '10001', '10001', '01111'],
+    j: ['00010', '00000', '00010', '00010', '00010', '10010', '01100'],
+    v: ['10001', '10001', '10001', '01010', '01010', '01010', '00100'],
+    n: ['10001', '11001', '10101', '10101', '10011', '10001', '10001'],
+    m: ['10001', '11011', '10101', '10101', '10101', '10101', '10101']
+  };
 
   function resize() {
     const w = window.innerWidth, h = window.innerHeight;
@@ -518,7 +527,27 @@ window.addEventListener("keydown", event => {
     dirty = true;
   }
 
+  window.addEventListener('keydown', event => {
+    if (!bootComplete || event.ctrlKey || event.metaKey || event.altKey) return;
+    const pattern = letterPatterns[event.key.toLowerCase()];
+    if (!pattern) return;
+
+    const startX = Math.floor(cursorX / CELL) - Math.floor(pattern[0].length / 2);
+    const startY = Math.floor(cursorY / CELL) - Math.floor(pattern.length / 2);
+    for (let y = 0; y < pattern.length; y++) {
+      for (let x = 0; x < pattern[y].length; x++) {
+        const cellX = startX + x, cellY = startY + y;
+        if (pattern[y][x] === '1' && cellX >= 0 && cellX < cols && cellY >= 0 && cellY < rows) {
+          grid[cellY * cols + cellX] = 1;
+        }
+      }
+    }
+    dirty = true;
+  });
+
   window.addEventListener('pointermove', e => {
+    cursorX = e.clientX;
+    cursorY = e.clientY;
     if (pointerPressed) { pointerDragging = true; dirty = true; }
     paint(Math.floor(e.clientX / CELL), Math.floor(e.clientY / CELL));
   });

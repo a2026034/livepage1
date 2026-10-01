@@ -10,16 +10,16 @@
 <body>
 <canvas id="life-bg" aria-hidden="true"></canvas>
 <canvas id="earth-bg" aria-hidden="true"></canvas>
-<button id="music-toggle" type="button" aria-pressed="false">音楽を開始</button>
 <div id="boot-screen" role="status" aria-live="polite" aria-label="起動中">
   <div id="boot-lines" aria-hidden="true"></div>
 </div>
 <main>
-  <div class="typing"> <h5>Art collective</h5></div>
-  <div class="typing"> <h1>Atelier Aurum</h1></div>
-<div class="typing">Atelier AUrum（2026/5/28〜）とは、AUrum.corが主宰するミクストメディアを主に扱うアートコレクティブ。特定の場所に位置せず、この宇宙に普遍的に存在する。という設定。ポスト・インターネット的な表現を特徴とする。</div>
+  <div class="typing" data-music-role="bass"> <h5>Art collective</h5></div>
+  <div class="typing" data-music-role="drums"> <h1>Atelier Aurum</h1></div>
+<div class="typing" data-music-role="chords">Atelier AUrum（2026/5/28〜）とは、AUrum.corが主宰するミクストメディアを主に扱うアートコレクティブ。特定の場所に位置せず、この宇宙に普遍的に存在する。という設定。ポスト・インターネット的な表現を特徴とする。</div>
 <br>
-  <h5>Member</h5>
+  <div class="typing" data-music-role="ambience">
+    <h5>Member</h5>
     <ul>
       <li>AUrum.cor</li>
       <li>深海竹林</li>
@@ -27,6 +27,7 @@
       <li>cadmium</li>
       <li>さんぼん</li>
     </ul>
+  </div>
 
     <h5>Works</h5>
    <table class="timeline-table">

@@ -5,9 +5,9 @@
     inset: 0;
     width: 100%;
     height: 100%;
-    z-index: -1;          /* コンテンツの背面 */
+    z-index: -1;          /* 地球背景より手前、コンテンツの背面 */
     pointer-events: none; /* クリックなどを邪魔しない */
-    opacity: 0.3;        /* 薄さはここで調整（0.05〜0.2 くらい） */
+    opacity: 0.55;
   }
   /* ===== ライフゲーム背景：ここまで ===== */
 
@@ -19,7 +19,7 @@
     inset: 0;
     width: 100%;
     height: 100%;
-    z-index: -1;
+    z-index: -2;
     pointer-events: none;
     opacity: var(--earth-opacity);
   }
@@ -42,25 +42,6 @@
     outline: 2px solid #c2701b;
     outline-offset: 3px;
   }
-  #music-toggle {
-    position: fixed;
-    right: 1rem;
-    bottom: max(1rem, env(safe-area-inset-bottom));
-    z-index: 3;
-    padding: .5rem .7rem;
-    border: 1px solid rgba(17, 17, 17, .4);
-    border-radius: 2px;
-    background: rgba(220, 220, 220, .9);
-    color: #111;
-    font: inherit;
-    font-size: .8rem;
-    cursor: pointer;
-  }
-  #music-toggle:focus-visible {
-    outline: 2px solid #c2701b;
-    outline-offset: 3px;
-  }
-
   body {
     margin: 0;
     background: #d0d0d0;
