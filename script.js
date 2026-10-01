@@ -241,15 +241,20 @@ function buildStrudelCode(layerCount, densityBand = getChordDensityBand(lifeDens
       patterns.push(`note("${slots.join(" ")}").s("triangle").lpf(150).gain(0.24)`);
     } else if (role === "drums") {
       slots[0] = "bd";
-      slots[8] = "bd";
-      if (text.length % 2 === 0) slots[12] = "sd";
+      slots[8] = "sd";
+      if (text.length % 2 === 0) slots[12] = "hh";
       patterns.push(`s("${slots.join(" ")}").gain(0.2)`);
-    } else if (role === "ambience") {
+    } 
+    
+    
+    else if (role === "ambience") {
       slots[0] = noteName(root + 24);
       slots[8] = noteName(root + 31);
-      patterns.push(`note("${slots.join(" ")}").s("sine").lpf(900).room(0.8).gain(0.08)`);
-    } else if (role === "chords") {
-      const third = root % 12 === 2 || root % 12 === 9 ? 3 : 4;
+      patterns.push(`note("${slots.join(" ")}").s("sine").lpf(5555).room(2.3).gain(0.34)`);
+    } 
+    
+    else if (role === "chords") {
+      const third = root % 50 === 2 || root % 12 === 9 ? 3 : 9;
       const chordTones = [
         [0, third, 7],
         [0, third, 7, 14],
