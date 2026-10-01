@@ -137,6 +137,23 @@
       () => {}, { maximumAge: 3600000, timeout: 10000 }
     );
   }
+
+  let lastReportedSolarPhase = "";
+  function reportSolarPhase(sun) {
+    const altitudeSin = Math.sin(loc.lat) * Math.sin(sun.lat)
+      + Math.cos(loc.lat) * Math.cos(sun.lat) * Math.cos(loc.lon - sun.lon);
+    const altitude = Math.asin(Math.max(-1, Math.min(1, altitudeSin)));
+    const hourAngle = Math.atan2(Math.sin(loc.lon - sun.lon), Math.cos(loc.lon - sun.lon));
+    let phase;
+
+    if (altitude <= -12 * RAD) phase = "chill";
+    else if (altitude >= 20 * RAD) phase = "day";
+    else phase = hourAngle < 0 ? "morning" : "night";
+
+    if (phase === lastReportedSolarPhase) return;
+    lastReportedSolarPhase = phase;
+    window.dispatchEvent(new CustomEvent("earth-time-phase", { detail: { phase } }));
+  }
  
   /* ---------- 振動(ばね + 揺らぎ) ---------- */
   let ox = 0, oy = 0, vx = 0, vy = 0, energy = 0, shakeS = 0;
@@ -287,6 +304,7 @@
     // 太陽(時刻)
     const sun = sunPoint(nowMs());
     sun.lon += curOff; // カーソルの横移動分だけ太陽を回す
+    reportSolarPhase(sun);
     const [sx, sy, sz] = rot(sun.lat, sun.lon);
     const orbit = Math.min(R * 1.3, Math.min(W, H) / 2 * .96);
     const sunX = cx + sx * orbit, sunY = cy - sy * orbit;
@@ -360,6 +378,7 @@
  
   /* ---------- ループ(静止中は1秒ごとにだけ再描画して省電力) ---------- */
   let last = performance.now(), lastDraw = 0;
+  let burstWasActive = false;
   function frame(t) {
     const dt = Math.min(.05, (t - last) / 1000); last = t;
  
@@ -392,8 +411,14 @@
     curOff += (curTarget - curOff) * (1 - Math.exp(-dt * (curTarget === 0 ? 2.5 : 10)));
     if (Math.abs(curTarget - curOff) < 1e-4) curOff = curTarget; else dirty = true;
  
+    const burstActive = burstState(t).on;
+    if (burstActive && !burstWasActive) {
+      window.dispatchEvent(new CustomEvent('earth-burst-start'));
+    }
+    burstWasActive = burstActive;
+
     step(dt);
-    if (dirty || energy > .002 || Math.abs(ox) + Math.abs(oy) > .05 || burstState(t).on || t - lastDraw > (speed > 1 ? 40 : 1000)) {
+    if (dirty || energy > .002 || Math.abs(ox) + Math.abs(oy) > .05 || burstActive || t - lastDraw > (speed > 1 ? 40 : 1000)) {
       draw(t); lastDraw = t; dirty = false;
     }
     requestAnimationFrame(frame);

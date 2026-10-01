@@ -29,6 +29,8 @@ let paragraphLoopTimer = null;
 let pendingMusicLayerCount = 0;
 let activeMusicLayerCount = 0;
 let activeChordDensityBand = 0;
+let currentTimePhase = "chill";
+let activeTimePhase = "chill";
 let strudelInitPromise = null;
 let musicPlaying = false;
 let generationCount = 0;
@@ -225,8 +227,36 @@ function getChordDensityBand(density) {
   return [0.08, 0.16, 0.24].filter(threshold => density >= threshold).length;
 }
 
-function buildStrudelCode(layerCount, densityBand = getChordDensityBand(lifeDensity)) {
+const TIME_STYLES = {
+  morning: {
+    bassSynth: "triangle", bassFilter: 240, bassGain: 0.2, bassStep: 4,
+    ambienceSynth: "sine", ambienceFilter: 1700, ambienceRoom: 0.45, ambienceGain: 0.1,
+    chordFilter: 2100, chordRoom: 0.4, chordGain: 0.075,
+    chordTones: [[0, 4, 7], [0, 4, 7, 9], [0, 4, 7, 14], [0, 2, 4, 7]]
+  },
+  day: {
+    bassSynth: "square", bassFilter: 180, bassGain: 0.23, bassStep: 4,
+    ambienceSynth: "triangle", ambienceFilter: 1100, ambienceRoom: 0.3, ambienceGain: 0.08,
+    chordFilter: 1000, chordRoom: 0.35, chordGain: 0.08,
+    chordTones: [[0, 4, 7], [0, 4, 7, 9], [0, 4, 7, 14], [0, 4, 7, 9]]
+  },
+  night: {
+    bassSynth: "sine", bassFilter: 105, bassGain: 0.16, bassStep: 8,
+    ambienceSynth: "sine", ambienceFilter: 650, ambienceRoom: 0.8, ambienceGain: 0.075,
+    chordFilter: 760, chordRoom: 0.85, chordGain: 0.065,
+    chordTones: [[0, 3, 7], [0, 3, 7, 10], [0, 3, 7, 14], [0, 3, 7, 10]]
+  },
+  chill: {
+    bassSynth: "sine", bassFilter: 75, bassGain: 0.2, bassStep: 8,
+    ambienceSynth: "sine", ambienceFilter: 420, ambienceRoom: 1, ambienceGain: 0.045,
+    chordFilter: 520, chordRoom: 1, chordGain: 0.045,
+    chordTones: [[1, 6, 2, 5, ], [5, 3, 7, 14], [0, 3, 7, 10], [0, 3, 7, 14]]
+  }
+};
+
+function buildStrudelCode(layerCount, densityBand = getChordDensityBand(lifeDensity), timePhase = currentTimePhase) {
   const patterns = [];
+  const style = TIME_STYLES[timePhase] || TIME_STYLES.chill;
 
   for (const part of musicParts.slice(0, layerCount)) {
     const { text, role } = part;
@@ -234,15 +264,23 @@ function buildStrudelCode(layerCount, densityBand = getChordDensityBand(lifeDens
     const slots = Array(16).fill("~");
 
     if (role === "bass") {
-      for (let beat = 0; beat < 16; beat += 4) {
+      for (let beat = 0; beat < 16; beat += style.bassStep) {
         const offset = text.codePointAt(beat % text.length) % 5;
         slots[beat] = noteName(root - 12 + offset);
       }
-      patterns.push(`note("${slots.join(" ")}").s("triangle").lpf(150).gain(0.24)`);
+      patterns.push(`note("${slots.join(" ")}").s("${style.bassSynth}").lpf(${style.bassFilter}).gain(${style.bassGain})`);
     } else if (role === "drums") {
       slots[0] = "bd";
-      slots[8] = "sd";
-      if (text.length % 2 === 0) slots[12] = "hh";
+      if (timePhase === "morning") {
+        slots[4] = "hh";
+        slots[8] = "sd";
+        slots[12] = "hh";
+      } else if (timePhase === "day") {
+        slots[8] = "bd";
+        slots[12] = "sd";
+      } else if (timePhase === "night") {
+        slots[12] = "hh";
+      }
       patterns.push(`s("${slots.join(" ")}").gain(0.2)`);
     } 
     
@@ -250,24 +288,18 @@ function buildStrudelCode(layerCount, densityBand = getChordDensityBand(lifeDens
     else if (role === "ambience") {
       slots[0] = noteName(root + 24);
       slots[8] = noteName(root + 31);
-      patterns.push(`note("${slots.join(" ")}").s("sine").lpf(5555).room(2.3).gain(0.34)`);
+      patterns.push(`note("${slots.join(" ")}").s("${style.ambienceSynth}").lpf(${style.ambienceFilter}).room(${style.ambienceRoom}).gain(${style.ambienceGain})`);
     } 
     
     else if (role === "chords") {
-      const third = root % 50 === 2 || root % 12 === 9 ? 3 : 9;
-      const chordTones = [
-        [0, third, 7],
-        [0, third, 7, 14],
-        [0, 5, 7],
-        [0, third, 7, 9]
-      ][densityBand];
+      const chordTones = style.chordTones[densityBand];
       const chordVoices = chordTones.map(interval => {
         const voice = Array(16).fill("~");
         voice[0] = noteName(root + 36 + interval);
-        voice[8] = noteName(root + 48 + interval);
+        if (timePhase !== "chill") voice[8] = noteName(root + 48 + interval);
         return voice;
       });
-      patterns.push(`stack(${chordVoices.map(voice => `note("${voice.join(" ")}")`).join(",")}).s("triangle").lpf(1200).room(0.65).gain(0.07)`);
+      patterns.push(`stack(${chordVoices.map(voice => `note("${voice.join(" ")}")`).join(",")}).s("triangle").lpf(${style.chordFilter}).room(${style.chordRoom}).gain(${style.chordGain})`);
     }
   }
 
@@ -289,7 +321,8 @@ function startStrudel() {
       musicPlaying = true;
       activeMusicLayerCount = pendingMusicLayerCount;
       activeChordDensityBand = getChordDensityBand(lifeDensity);
-      window.evaluate(buildStrudelCode(activeMusicLayerCount, activeChordDensityBand));
+      activeTimePhase = currentTimePhase;
+      window.evaluate(buildStrudelCode(activeMusicLayerCount, activeChordDensityBand, activeTimePhase));
     } catch (error) {
       console.error("Strudelの初期化に失敗しました", error);
       strudelInitPromise = null;
@@ -302,16 +335,24 @@ function startStrudel() {
 function syncMusicLayers() {
   if (pendingMusicLayerCount === 0) return;
   const densityBand = getChordDensityBand(lifeDensity);
-  if (pendingMusicLayerCount === activeMusicLayerCount && densityBand === activeChordDensityBand) return;
+  if (pendingMusicLayerCount === activeMusicLayerCount
+    && densityBand === activeChordDensityBand
+    && currentTimePhase === activeTimePhase) return;
   if (!musicPlaying) {
     startStrudel();
     return;
   }
   activeMusicLayerCount = pendingMusicLayerCount;
   activeChordDensityBand = densityBand;
+  activeTimePhase = currentTimePhase;
   window.hush();
-  window.evaluate(buildStrudelCode(activeMusicLayerCount, activeChordDensityBand));
+  window.evaluate(buildStrudelCode(activeMusicLayerCount, activeChordDensityBand, activeTimePhase));
 }
+
+window.addEventListener("earth-time-phase", event => {
+  currentTimePhase = event.detail.phase;
+  syncMusicLayers();
+});
 
 function triggerCellSeed(x, y) {
   const now = bootAudioContext.currentTime;
@@ -332,6 +373,47 @@ function triggerCellSeed(x, y) {
   osc.start(now);
   osc.stop(now + 0.22);
 }
+
+function playEarthBurstSound() {
+  const context = bootAudioContext;
+  if (context.state !== "running") return;
+
+  const now = context.currentTime;
+  const duration = 0.9;
+  const noiseBuffer = context.createBuffer(1, Math.ceil(context.sampleRate * duration), context.sampleRate);
+  const noiseData = noiseBuffer.getChannelData(0);
+  for (let index = 0; index < noiseData.length; index++) {
+    noiseData[index] = (Math.random() * 2 - 1) * (1 - index / noiseData.length) ** 0.65;
+  }
+
+  const noise = context.createBufferSource();
+  const filter = context.createBiquadFilter();
+  const noiseGain = context.createGain();
+  noise.buffer = noiseBuffer;
+  filter.type = "lowpass";
+  filter.frequency.setValueAtTime(4200, now);
+  filter.frequency.exponentialRampToValueAtTime(260, now + duration);
+  noiseGain.gain.setValueAtTime(0.0001, now);
+  noiseGain.gain.exponentialRampToValueAtTime(0.16, now + 0.04);
+  noiseGain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+  noise.connect(filter).connect(noiseGain).connect(masterGain);
+  noise.start(now);
+  noise.stop(now + duration);
+
+  const sub = context.createOscillator();
+  const subGain = context.createGain();
+  sub.type = "sine";
+  sub.frequency.setValueAtTime(88, now);
+  sub.frequency.exponentialRampToValueAtTime(38, now + 0.42);
+  subGain.gain.setValueAtTime(0.0001, now);
+  subGain.gain.exponentialRampToValueAtTime(0.11, now + 0.025);
+  subGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.45);
+  sub.connect(subGain).connect(masterGain);
+  sub.start(now);
+  sub.stop(now + 0.46);
+}
+
+window.addEventListener("earth-burst-start", playEarthBurstSound);
 
 let bootSoundStarted = false;
 let bootSoundPending = false;
