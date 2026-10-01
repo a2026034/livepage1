@@ -10,6 +10,7 @@
 <body>
 <canvas id="life-bg" aria-hidden="true"></canvas>
 <canvas id="earth-bg" aria-hidden="true"></canvas>
+<button id="music-toggle" type="button" aria-pressed="false">音楽を開始</button>
 <div id="boot-screen" role="status" aria-live="polite" aria-label="起動中">
   <div id="boot-lines" aria-hidden="true"></div>
 </div>
@@ -64,6 +65,7 @@
     </table>
 </main>
 
+<script src="https://unpkg.com/@strudel/web@1.3.0"></script>
 <script src="earth-background.js"></script>
 <script src="script.js"></script>
 </body>

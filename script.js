@@ -1,5 +1,6 @@
 const targets = Array.from(document.querySelectorAll("h1, h5, p, li, th, td, .typing"))
   .filter(target => !target.querySelector("h1, h5, p, li, th, td"));
+const paragraphSources = targets.map(target => target.textContent.trim());
 const characters = targets.flatMap(target =>
   Array.from(target.textContent, character => ({ target, character }))
 );
@@ -14,8 +15,11 @@ const visibleCharacters = [];
 let bootComplete = false;
 let paragraphSoundBuffer = [];
 let paragraphLoopTimer = null;
-let beatLayerCount = 0;
-let beatPhase = 0;
+let pendingMusicLayerCount = 1;
+let activeMusicLayerCount = 1;
+let activeChordDensityBand = 0;
+let strudelInitPromise = null;
+let musicPlaying = false;
 let generationCount = 0;
 let allTextDisplayed = false;
 let lifeDensity = 0;
@@ -194,47 +198,120 @@ function playParagraphLoop() {
   paragraphLoopTimer = window.setInterval(scheduleSequence, loopPeriod * 1000);
 }
 
-function refreshBeatLayer() {
-  beatLayerCount = Math.min(Math.max(beatLayerCount, 1), 8);
-  if (beatLayerCount > 0) {
-    masterGain.gain.value = 0.18 + beatLayerCount * 0.04;
+const NOTE_NAMES = ["c", "cs", "d", "ds", "e", "f", "fs", "g", "gs", "a", "as", "b"];
+
+function noteName(midi) {
+  return `${NOTE_NAMES[midi % 12]}${Math.floor(midi / 12) - 1}`;
+}
+
+function paragraphRoot(text) {
+  let hash = 0;
+  for (const character of text) hash = (hash * 31 + character.codePointAt(0)) >>> 0;
+  return [36, 38, 41, 43, 45][hash % 5];
+}
+
+function getChordDensityBand(density) {
+  return [0.08, 0.16, 0.24].filter(threshold => density >= threshold).length;
+}
+
+function buildStrudelCode(layerCount, densityBand = getChordDensityBand(lifeDensity)) {
+  const patterns = [];
+  const roles = ["bass", "drums", "ambience", "chords"];
+
+  for (let index = 0; index < layerCount; index++) {
+    const text = paragraphSources[index % paragraphSources.length] || "space";
+    const root = paragraphRoot(text);
+    const role = roles[index % roles.length];
+    const slots = Array(16).fill("~");
+
+    if (role === "bass") {
+      for (let beat = 0; beat < 16; beat += 4) {
+        const offset = text.codePointAt(beat % text.length) % 5;
+        slots[beat] = noteName(root - 12 + offset);
+      }
+      patterns.push(`note("${slots.join(" ")}").s("triangle").lpf(150).gain(0.24)`);
+    } else if (role === "drums") {
+      slots[0] = "bd";
+      slots[8] = "bd";
+      if (text.length % 2 === 0) slots[12] = "sd";
+      patterns.push(`s("${slots.join(" ")}").gain(0.2)`);
+    } else if (role === "ambience") {
+      slots[0] = noteName(root + 24);
+      slots[8] = noteName(root + 31);
+      patterns.push(`note("${slots.join(" ")}").s("sine").lpf(900).room(0.8).gain(0.08)`);
+    } else {
+      const third = root % 12 === 2 || root % 12 === 9 ? 3 : 4;
+      const chordTones = [
+        [0, third, 7],
+        [0, third, 7, 14],
+        [0, 5, 7],
+        [0, third, 7, 9]
+      ][densityBand];
+      const chordVoices = chordTones.map(interval => {
+        const voice = Array(16).fill("~");
+        voice[0] = noteName(root + 36 + interval);
+        voice[8] = noteName(root + 48 + interval);
+        return voice;
+      });
+      patterns.push(`stack(${chordVoices.map(voice => `note("${voice.join(" ")}")`).join(",")}).s("triangle").lpf(1200).room(0.65).gain(0.07)`);
+    }
+  }
+
+  return `setcpm(15.625); stack(${patterns.join(",")}).play()`;
+}
+
+function updateMusicButton() {
+  const button = document.getElementById("music-toggle");
+  button.textContent = musicPlaying ? "音楽を停止" : "音楽を開始";
+  button.setAttribute("aria-pressed", String(musicPlaying));
+}
+
+async function startStrudel() {
+  if (!strudelInitPromise) {
+    if (typeof window.initStrudel !== "function") {
+      document.getElementById("music-toggle").textContent = "Strudelを読み込めません";
+      return;
+    }
+    strudelInitPromise = window.initStrudel({
+      prebake: () => window.samples("github:tidalcycles/dirt-samples")
+    });
+  }
+
+  try {
+    await strudelInitPromise;
+    musicPlaying = true;
+    activeMusicLayerCount = pendingMusicLayerCount;
+    activeChordDensityBand = getChordDensityBand(lifeDensity);
+    window.evaluate(buildStrudelCode(activeMusicLayerCount, activeChordDensityBand));
+    updateMusicButton();
+  } catch (error) {
+    console.error("Strudelの初期化に失敗しました", error);
+    strudelInitPromise = null;
+    musicPlaying = false;
+    updateMusicButton();
   }
 }
 
-function triggerBeatPulse() {
-  if (!bootAudioContext) return;
-  const now = bootAudioContext.currentTime;
-  const densityFactor = Math.min(1, lifeDensity || 0);
-  const baseFreq = 48 + densityFactor * 120 + beatLayerCount * 8;
-  const osc = bootAudioContext.createOscillator();
-  const gain = bootAudioContext.createGain();
-  const filter = bootAudioContext.createBiquadFilter();
-  osc.type = "triangle";
-  osc.frequency.setValueAtTime(baseFreq, now);
-  filter.type = "lowpass";
-  filter.frequency.setValueAtTime(300 + densityFactor * 1800 + beatLayerCount * 120, now);
-  gain.gain.setValueAtTime(0.0001, now);
-  gain.gain.exponentialRampToValueAtTime(0.12 + densityFactor * 0.1, now + 0.008);
-  gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.15 + beatLayerCount * 0.01);
-  osc.connect(filter).connect(gain).connect(masterGain);
-  osc.start(now);
-  osc.stop(now + 0.16 + beatLayerCount * 0.015);
-
-  if ((beatPhase + 1) % 4 === 0) {
-    const clickOsc = bootAudioContext.createOscillator();
-    const clickGain = bootAudioContext.createGain();
-    clickOsc.type = "square";
-    clickOsc.frequency.setValueAtTime(1100 + densityFactor * 2200, now);
-    clickGain.gain.setValueAtTime(0.0001, now);
-    clickGain.gain.exponentialRampToValueAtTime(0.06, now + 0.004);
-    clickGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.04);
-    clickOsc.connect(clickGain).connect(masterGain);
-    clickOsc.start(now);
-    clickOsc.stop(now + 0.05);
+function syncMusicLayers() {
+  const densityBand = getChordDensityBand(lifeDensity);
+  if (pendingMusicLayerCount === activeMusicLayerCount && densityBand === activeChordDensityBand) return;
+  activeMusicLayerCount = pendingMusicLayerCount;
+  activeChordDensityBand = densityBand;
+  if (musicPlaying && typeof window.evaluate === "function") {
+    window.hush();
+    window.evaluate(buildStrudelCode(activeMusicLayerCount, activeChordDensityBand));
   }
-
-  beatPhase = (beatPhase + 1) % 16;
 }
+
+document.getElementById("music-toggle").addEventListener("click", () => {
+  if (musicPlaying) {
+    window.hush();
+    musicPlaying = false;
+    updateMusicButton();
+  } else {
+    startStrudel();
+  }
+});
 
 function triggerCellSeed(x, y) {
   const now = bootAudioContext.currentTime;
@@ -286,6 +363,10 @@ function appendNextCharacter() {
   if (visibleCount >= characters.length) return false;
 
   const nextCharacter = characters[visibleCount];
+  const targetIndex = targets.indexOf(nextCharacter.target);
+  if (targetIndex >= pendingMusicLayerCount) {
+    pendingMusicLayerCount = targetIndex + 1;
+  }
   const character = document.createElement("span");
   character.className = "typing-character";
   character.textContent = nextCharacter.character;
@@ -308,8 +389,6 @@ window.addEventListener("keydown", event => {
   if (event.key === "Enter") {
     event.preventDefault();
     playKeySound(event.key);
-    beatLayerCount = Math.min(beatLayerCount + 1, 8);
-    refreshBeatLayer();
     if (!currentTarget) return;
 
     const currentLine = currentTarget.closest("tr") || currentTarget;
@@ -349,6 +428,7 @@ window.addEventListener("keydown", event => {
 (() => {
   const CELL = 12;
   const INTERVAL = 120;
+  const GENERATIONS_PER_BAR = 32;
 
   const canvas = document.getElementById('life-bg');
   const ctx = canvas.getContext('2d');
@@ -388,9 +468,7 @@ window.addEventListener("keydown", event => {
     for (let i = 0; i < grid.length; i++) if (grid[i]) living++;
     lifeDensity = living / Math.max(1, grid.length);
     generationCount++;
-    if (generationCount % 2 === 0) {
-      triggerBeatPulse();
-    }
+    if (generationCount % GENERATIONS_PER_BAR === 0) syncMusicLayers();
     dirty = true;
   }
 
