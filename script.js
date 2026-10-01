@@ -92,15 +92,12 @@ function showBootFrame() {
 }
 
 const bootSound = new Audio("sounds/Dial_up_modem_noises.ogg");
+bootSound.volume = 1;
 const bootAudioContext = new AudioContext();
 const masterGain = bootAudioContext.createGain();
-masterGain.gain.value = 0.7;
-const bootAudioGain = bootAudioContext.createGain();
-bootAudioGain.gain.value = 1.0;
+masterGain.gain.value = 1;
 const keyAudioGain = bootAudioContext.createGain();
-keyAudioGain.gain.value = 0.5;
-bootAudioContext.createMediaElementSource(bootSound).connect(bootAudioGain);
-bootAudioGain.connect(masterGain);
+keyAudioGain.gain.value = 0.75;
 keyAudioGain.connect(masterGain);
 masterGain.connect(bootAudioContext.destination);
 
@@ -229,27 +226,27 @@ function getChordDensityBand(density) {
 
 const TIME_STYLES = {
   morning: {
-    bassSynth: "triangle", bassFilter: 240, bassGain: 0.2, bassStep: 4,
-    ambienceSynth: "sine", ambienceFilter: 1700, ambienceRoom: 0.45, ambienceGain: 0.1,
-    chordFilter: 2100, chordRoom: 0.4, chordGain: 0.075,
+    bassSynth: "triangle", bassFilter: 240, bassGain: 0.3, bassStep: 4,
+    ambienceSynth: "sine", ambienceFilter: 1700, ambienceRoom: 0.45, ambienceGain: 0.15,
+    chordFilter: 2100, chordRoom: 0.4, chordGain: 0.1125,
     chordTones: [[0, 4, 7], [0, 4, 7, 9], [0, 4, 7, 14], [0, 2, 4, 7]]
   },
   day: {
-    bassSynth: "square", bassFilter: 180, bassGain: 0.23, bassStep: 4,
-    ambienceSynth: "triangle", ambienceFilter: 1100, ambienceRoom: 0.3, ambienceGain: 0.08,
-    chordFilter: 1000, chordRoom: 0.35, chordGain: 0.08,
+    bassSynth: "square", bassFilter: 180, bassGain: 0.345, bassStep: 4,
+    ambienceSynth: "triangle", ambienceFilter: 1100, ambienceRoom: 0.3, ambienceGain: 0.12,
+    chordFilter: 1000, chordRoom: 0.35, chordGain: 0.12,
     chordTones: [[0, 4, 7], [0, 4, 7, 9], [0, 4, 7, 14], [0, 4, 7, 9]]
   },
   night: {
-    bassSynth: "sine", bassFilter: 105, bassGain: 0.16, bassStep: 8,
-    ambienceSynth: "sine", ambienceFilter: 650, ambienceRoom: 0.8, ambienceGain: 0.075,
-    chordFilter: 760, chordRoom: 0.85, chordGain: 0.065,
+    bassSynth: "sine", bassFilter: 105, bassGain: 0.24, bassStep: 8,
+    ambienceSynth: "sine", ambienceFilter: 650, ambienceRoom: 0.8, ambienceGain: 0.1125,
+    chordFilter: 760, chordRoom: 0.85, chordGain: 0.0975,
     chordTones: [[0, 3, 7], [0, 3, 7, 10], [0, 3, 7, 14], [0, 3, 7, 10]]
   },
   chill: {
-    bassSynth: "sine", bassFilter: 75, bassGain: 0.2, bassStep: 8,
-    ambienceSynth: "sine", ambienceFilter: 420, ambienceRoom: 1, ambienceGain: 0.045,
-    chordFilter: 520, chordRoom: 1, chordGain: 0.045,
+    bassSynth: "sine", bassFilter: 75, bassGain: 0.3, bassStep: 8,
+    ambienceSynth: "sine", ambienceFilter: 420, ambienceRoom: 1, ambienceGain: 0.0675,
+    chordFilter: 520, chordRoom: 1, chordGain: 0.0675,
     chordTones: [[1, 6, 2, 5, ], [5, 3, 7, 14], [0, 3, 7, 10], [0, 3, 7, 14]]
   }
 };
@@ -281,7 +278,7 @@ function buildStrudelCode(layerCount, densityBand = getChordDensityBand(lifeDens
       } else if (timePhase === "night") {
         slots[12] = "hh";
       }
-      patterns.push(`s("${slots.join(" ")}").gain(0.2)`);
+      patterns.push(`s("${slots.join(" ")}").gain(0.3)`);
     } 
     
     
@@ -421,7 +418,7 @@ let bootSoundPending = false;
 function playBootSound() {
   if (bootSoundStarted || bootSoundPending) return;
   bootSoundPending = true;
-  Promise.all([bootAudioContext.resume(), bootSound.play()]).then(() => {
+  bootSound.play().then(() => {
     bootSoundStarted = true;
     window.removeEventListener("pointerdown", playBootSound);
     window.removeEventListener("keydown", playBootSound);
