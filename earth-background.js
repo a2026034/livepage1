@@ -379,6 +379,7 @@
   /* ---------- ループ(静止中は1秒ごとにだけ再描画して省電力) ---------- */
   let last = performance.now(), lastDraw = 0;
   let burstWasActive = false;
+  let lastRotationPitch = null;
   function frame(t) {
     const dt = Math.min(.05, (t - last) / 1000); last = t;
  
@@ -404,6 +405,11 @@
     }
     sunOff += (sunTarget - sunOff) * (1 - Math.exp(-dt * (released ? 3 : 12)));
     if (Math.abs(sunTarget - sunOff) < 1e-4) sunOff = sunTarget; else dirty = true;
+    const rotationPitch = Math.max(-24, Math.min(24, Math.round(sunOff / TAU * 12)));
+    if (rotationPitch !== lastRotationPitch) {
+      lastRotationPitch = rotationPitch;
+      window.dispatchEvent(new CustomEvent('earth-rotation-pitch', { detail: { semitones: rotationPitch } }));
+    }
     scrOff += (scrTarget - scrOff) * (1 - Math.exp(-dt * (released ? 3 : 12)));
     if (Math.abs(scrTarget - scrOff) < 1e-4) scrOff = scrTarget; else dirty = true;
     // ドラッグを離したら太陽が現在時刻の位置へゆっくり戻る

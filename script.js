@@ -29,6 +29,8 @@ let paragraphLoopTimer = null;
 let pendingMusicLayerCount = 0;
 let activeMusicLayerCount = 0;
 let activeChordDensityBand = 0;
+let rotationPitchSemitones = 0;
+let activeRotationPitchSemitones = 0;
 let currentTimePhase = "chill";
 let activeTimePhase = "chill";
 let strudelInitPromise = null;
@@ -118,6 +120,7 @@ const keySoundProfiles = {
 function playKeySound(key) {
   const context = bootAudioContext;
   const start = context.currentTime;
+  const pitchRatio = 2 ** (rotationPitchSemitones / 12);
   const oscillator = context.createOscillator();
   const filter = context.createBiquadFilter();
   const gain = context.createGain();
@@ -126,8 +129,8 @@ function playKeySound(key) {
 
   if (key === "Backspace") {
     oscillator.type = "sawtooth";
-    oscillator.frequency.setValueAtTime(760, start);
-    oscillator.frequency.exponentialRampToValueAtTime(110, start + 0.13);
+    oscillator.frequency.setValueAtTime(760 * pitchRatio, start);
+    oscillator.frequency.exponentialRampToValueAtTime(110 * pitchRatio, start + 0.13);
     filter.type = "lowpass";
     filter.frequency.setValueAtTime(2600, start);
     filter.frequency.exponentialRampToValueAtTime(500, start + 0.13);
@@ -142,7 +145,7 @@ function playKeySound(key) {
 
   if (/^[0-9]$/.test(key)) {
     oscillator.type = "square";
-    oscillator.frequency.setValueAtTime(1500 + Number(key) * 35, start);
+    oscillator.frequency.setValueAtTime((1500 + Number(key) * 35) * pitchRatio, start);
     filter.type = "highpass";
     filter.frequency.value = 900;
     gain.gain.setValueAtTime(0.001, start);
@@ -156,8 +159,8 @@ function playKeySound(key) {
 
   const selectedProfile = profile || keySoundProfiles.t;
   oscillator.type = selectedProfile.type;
-  oscillator.frequency.setValueAtTime(selectedProfile.frequency, start);
-  oscillator.frequency.exponentialRampToValueAtTime(selectedProfile.endFrequency, start + selectedProfile.duration);
+  oscillator.frequency.setValueAtTime(selectedProfile.frequency * pitchRatio, start);
+  oscillator.frequency.exponentialRampToValueAtTime(selectedProfile.endFrequency * pitchRatio, start + selectedProfile.duration);
   filter.type = "lowpass";
   filter.frequency.value = selectedProfile.filter;
   gain.gain.setValueAtTime(0.001, start);
@@ -211,6 +214,7 @@ function playParagraphLoop() {
 const NOTE_NAMES = ["c", "cs", "d", "ds", "e", "f", "fs", "g", "gs", "a", "as", "b"];
 
 function noteName(midi) {
+  midi += rotationPitchSemitones;
   return `${NOTE_NAMES[midi % 12]}${Math.floor(midi / 12) - 1}`;
 }
 
@@ -278,7 +282,7 @@ function buildStrudelCode(layerCount, densityBand = getChordDensityBand(lifeDens
       } else if (timePhase === "night") {
         slots[12] = "hh";
       }
-      patterns.push(`s("${slots.join(" ")}").gain(0.3)`);
+      patterns.push(`s("${slots.join(" ")}").speed(${2 ** (rotationPitchSemitones / 12)}).gain(0.3)`);
     } 
     
     
@@ -318,6 +322,7 @@ function startStrudel() {
       musicPlaying = true;
       activeMusicLayerCount = pendingMusicLayerCount;
       activeChordDensityBand = getChordDensityBand(lifeDensity);
+      activeRotationPitchSemitones = rotationPitchSemitones;
       activeTimePhase = currentTimePhase;
       window.evaluate(buildStrudelCode(activeMusicLayerCount, activeChordDensityBand, activeTimePhase));
     } catch (error) {
@@ -334,6 +339,7 @@ function syncMusicLayers() {
   const densityBand = getChordDensityBand(lifeDensity);
   if (pendingMusicLayerCount === activeMusicLayerCount
     && densityBand === activeChordDensityBand
+    && rotationPitchSemitones === activeRotationPitchSemitones
     && currentTimePhase === activeTimePhase) return;
   if (!musicPlaying) {
     startStrudel();
@@ -341,6 +347,7 @@ function syncMusicLayers() {
   }
   activeMusicLayerCount = pendingMusicLayerCount;
   activeChordDensityBand = densityBand;
+  activeRotationPitchSemitones = rotationPitchSemitones;
   activeTimePhase = currentTimePhase;
   window.hush();
   window.evaluate(buildStrudelCode(activeMusicLayerCount, activeChordDensityBand, activeTimePhase));
@@ -351,6 +358,12 @@ window.addEventListener("earth-time-phase", event => {
   syncMusicLayers();
 });
 
+window.addEventListener("earth-rotation-pitch", event => {
+  rotationPitchSemitones = event.detail.semitones;
+  bootSound.playbackRate = 2 ** (rotationPitchSemitones / 12);
+  syncMusicLayers();
+});
+
 function triggerCellSeed(x, y) {
   const now = bootAudioContext.currentTime;
   const osc = bootAudioContext.createOscillator();
@@ -358,11 +371,11 @@ function triggerCellSeed(x, y) {
   const filter = bootAudioContext.createBiquadFilter();
   const xNorm = x / Math.max(1, window.innerWidth / 12);
   const yNorm = 1 - y / Math.max(1, window.innerHeight / 12);
-  const pitch = 200 + xNorm * 500 + yNorm * 300 + lifeDensity * 160;
+  const pitch = (200 + xNorm * 500 + yNorm * 300 + lifeDensity * 160) * 2 ** (rotationPitchSemitones / 12);
   osc.type = "sine";
   osc.frequency.setValueAtTime(pitch, now);
   filter.type = "bandpass";
-  filter.frequency.setValueAtTime(600 + lifeDensity * 2600, now);
+  filter.frequency.setValueAtTime((600 + lifeDensity * 2600) * 2 ** (rotationPitchSemitones / 12), now);
   gain.gain.setValueAtTime(0.0001, now);
   gain.gain.exponentialRampToValueAtTime(0.05 + lifeDensity * 0.08, now + 0.01);
   gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.2);
@@ -400,8 +413,9 @@ function playEarthBurstSound() {
   const sub = context.createOscillator();
   const subGain = context.createGain();
   sub.type = "sine";
-  sub.frequency.setValueAtTime(88, now);
-  sub.frequency.exponentialRampToValueAtTime(38, now + 0.42);
+  const pitchRatio = 2 ** (rotationPitchSemitones / 12);
+  sub.frequency.setValueAtTime(88 * pitchRatio, now);
+  sub.frequency.exponentialRampToValueAtTime(38 * pitchRatio, now + 0.42);
   subGain.gain.setValueAtTime(0.0001, now);
   subGain.gain.exponentialRampToValueAtTime(0.11, now + 0.025);
   subGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.45);
