@@ -238,7 +238,7 @@ const TIME_STYLES = {
   day: {
     bassSynth: "square", bassFilter: 180, bassGain: 0.345, bassStep: 4,
     ambienceSynth: "triangle", ambienceFilter: 1100, ambienceRoom: 0.3, ambienceGain: 0.12,
-    chordFilter: 1000, chordRoom: 0.35, chordGain: 0.12,
+    chordFilter: 1000, chordRoom: 0.35, chordGain: 0.5,
     chordTones: [[0, 4, 7], [0, 4, 7, 9], [0, 4, 7, 14], [0, 4, 7, 9]]
   },
   night: {
