@@ -106,6 +106,7 @@
  
   /* ---------- 色(昼側は暖色、夜側は寒色。明暗の境目はなめらか) ---------- */
   const B = 24, landS = [], seaS = [];
+  const COLOR_DOT_MIN = -0.12, COLOR_DOT_MAX = 0.30;
   const mix = (a, b, t) => a + (b - a) * t;
   for (let k = 0; k < B; k++) {
     const t = k / (B - 1);
@@ -139,16 +140,63 @@
   }
 
   let lastReportedSolarPhase = "";
-  function reportSolarPhase(sun) {
-    const altitudeSin = Math.sin(loc.lat) * Math.sin(sun.lat)
-      + Math.cos(loc.lat) * Math.cos(sun.lat) * Math.cos(loc.lon - sun.lon);
-    const altitude = Math.asin(Math.max(-1, Math.min(1, altitudeSin)));
-    const hourAngle = Math.atan2(Math.sin(loc.lon - sun.lon), Math.cos(loc.lon - sun.lon));
-    let phase;
+  let lastPhaseSampleAt = 0;
+  function reportSolarPhase(centerX, centerY, t) {
+    if (t - lastPhaseSampleAt < 1000) return;
+    lastPhaseSampleAt = t;
 
-    if (altitude <= -12 * RAD) phase = "chill";
-    else if (altitude >= 20 * RAD) phase = "day";
-    else phase = hourAngle < 0 ? "morning" : "night";
+    const radius = 50 * dpr;
+    const centerPixelX = centerX * dpr, centerPixelY = centerY * dpr;
+    const left = Math.max(0, Math.floor(centerPixelX - radius));
+    const top = Math.max(0, Math.floor(centerPixelY - radius));
+    const right = Math.min(canvas.width, Math.ceil(centerPixelX + radius));
+    const bottom = Math.min(canvas.height, Math.ceil(centerPixelY + radius));
+    if (right <= left || bottom <= top) return;
+
+    const pixels = ctx.getImageData(left, top, right - left, bottom - top).data;
+    let redCount = 0, blueCount = 0;
+    let rightRedCount = 0, leftBlueCount = 0;
+    const step = Math.max(1, Math.round(2 * dpr));
+    const markerClearance = 8 * dpr;
+
+    for (let y = top; y < bottom; y += step) {
+      for (let x = left; x < right; x += step) {
+        const dx = x - centerPixelX, dy = y - centerPixelY;
+        if (dx * dx + dy * dy > radius * radius
+          || dx * dx + dy * dy < markerClearance * markerClearance) continue;
+
+        const index = ((y - top) * (right - left) + x - left) * 4;
+        const red = pixels[index], green = pixels[index + 1], blue = pixels[index + 2];
+        if (pixels[index + 3] < 8) continue;
+
+        if (red > blue + 16 && red > green) {
+          redCount++;
+          if (dx > 0) rightRedCount++;
+        } else if (blue > red + 16 && blue >= green) {
+          blueCount++;
+          if (dx < 0) leftBlueCount++;
+        }
+      }
+    }
+
+    if (redCount + blueCount < 12) return;
+    const blueToRed = blueCount / Math.max(1, redCount);
+    const isBlueLocation = blueCount >= redCount;
+    const isRightSunSide = rightRedCount > 0;
+    let phase = "";
+
+    // 1) 現在地が青くて右側に赤がある && 青:赤 >= 3:2 なら朝
+    if (isBlueLocation && blueToRed >= 1.5 && isRightSunSide) phase = "morning";
+    // 2) 現在地が赤くて太陽が現在地より右側 && 青:赤 >= 1:1 なら昼
+    else if (!isBlueLocation && isRightSunSide && blueToRed >= 1) phase = "day";
+    // 3) 青:赤が極端に大きいなら深夜
+    else if (leftBlueCount > 0 && blueToRed >= 8) phase = "chill";
+    // 4) 右側の赤が強いが青:赤が1:1未満なら朝
+    else if (isRightSunSide && blueToRed <= 1) phase = "morning";
+    // 5) 左側の青が支配的なら夜
+    else if (leftBlueCount > 0 && blueToRed >= 1.5) phase = "night";
+    else if (lastReportedSolarPhase) return;
+    else phase = "day";
 
     if (phase === lastReportedSolarPhase) return;
     lastReportedSolarPhase = phase;
@@ -304,7 +352,6 @@
     // 太陽(時刻)
     const sun = sunPoint(nowMs());
     sun.lon += curOff; // カーソルの横移動分だけ太陽を回す
-    reportSolarPhase(sun);
     const [sx, sy, sz] = rot(sun.lat, sun.lon);
     const orbit = Math.min(R * 1.3, Math.min(W, H) / 2 * .96);
     const sunX = cx + sx * orbit, sunY = cy - sy * orbit;
@@ -338,7 +385,7 @@
         if (lp > 0) bu = lp < o ? easeOut(lp / o) : lp < e1 ? 1 : lp < e2 ? 1 - easeInOut((lp - e1) / bk[i]) : 0;
       }
       if (!front && bu < .01) continue;
-      let k = (x1 * sx + y2 * sy + z2 * sz + .12) / .42;
+      let k = (x1 * sx + y2 * sy + z2 * sz - COLOR_DOT_MIN) / (COLOR_DOT_MAX - COLOR_DOT_MIN);
       k = k < 0 ? 0 : k > 1 ? 1 : k; k = k * k * (3 - 2 * k);
       const b = (k * (B - 1)) | 0;
  
@@ -366,14 +413,16 @@
  
     // 現在地のしるし
     const [mx, my, mz] = rot(loc.lat, loc.lon);
+    const markerX = cx + mx * R, markerY = cy - my * R;
     if (mz > 0) {
       ctx.strokeStyle = 'rgba(255,240,210,.55)'; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.arc(cx + mx * R, cy - my * R, R * .022, 0, TAU); ctx.stroke();
+      ctx.beginPath(); ctx.arc(markerX, markerY, R * .022, 0, TAU); ctx.stroke();
       ctx.fillStyle = 'rgba(255,240,210,.8)';
-      ctx.beginPath(); ctx.arc(cx + mx * R, cy - my * R, R * .0055, 0, TAU); ctx.fill();
+      ctx.beginPath(); ctx.arc(markerX, markerY, R * .0055, 0, TAU); ctx.fill();
     }
  
     if (sz >= 0) drawSun(sunX, sunY, R, true); // 手前にいるとき
+    if (!bs.on && mz > 0) reportSolarPhase(markerX, markerY, t);
   }
  
   /* ---------- ループ(静止中は1秒ごとにだけ再描画して省電力) ---------- */

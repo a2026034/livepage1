@@ -355,6 +355,13 @@ function syncMusicLayers() {
 
 window.addEventListener("earth-time-phase", event => {
   currentTimePhase = event.detail.phase;
+  const phaseLabels = { morning: "朝", day: "昼", night: "夜", chill: "深夜" };
+  const phasePanel = document.getElementById("solar-phase-panel");
+  const phaseLabel = document.getElementById("solar-phase-label");
+  if (phasePanel && phaseLabel && phaseLabels[currentTimePhase]) {
+    phasePanel.dataset.phase = currentTimePhase;
+    phaseLabel.textContent = phaseLabels[currentTimePhase];
+  }
   syncMusicLayers();
 });
 
