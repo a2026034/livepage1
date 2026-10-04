@@ -34,6 +34,7 @@ let activeRotationPitchSemitones = 0;
 let currentTimePhase = "chill";
 let activeTimePhase = "chill";
 let strudelInitPromise = null;
+let strudelReady = false;
 let musicPlaying = false;
 let generationCount = 0;
 let allTextDisplayed = false;
@@ -319,15 +320,21 @@ function startStrudel() {
       await window.initStrudel({
         prebake: () => window.samples("github:tidalcycles/dirt-samples")
       });
+      strudelReady = true;
       musicPlaying = true;
       activeMusicLayerCount = pendingMusicLayerCount;
       activeChordDensityBand = getChordDensityBand(lifeDensity);
       activeRotationPitchSemitones = rotationPitchSemitones;
       activeTimePhase = currentTimePhase;
-      window.evaluate(buildStrudelCode(activeMusicLayerCount, activeChordDensityBand, activeTimePhase));
+      if (activeMusicLayerCount > 0) {
+        window.evaluate(buildStrudelCode(activeMusicLayerCount, activeChordDensityBand, activeTimePhase));
+      } else {
+        musicPlaying = false;
+      }
     } catch (error) {
       console.error("Strudelの初期化に失敗しました", error);
       strudelInitPromise = null;
+      strudelReady = false;
       musicPlaying = false;
     }
   })();
@@ -335,14 +342,29 @@ function startStrudel() {
 }
 
 function syncMusicLayers() {
-  if (pendingMusicLayerCount === 0) return;
+  if (pendingMusicLayerCount === 0) {
+    if (musicPlaying) window.hush();
+    musicPlaying = false;
+    activeMusicLayerCount = 0;
+    return;
+  }
+
   const densityBand = getChordDensityBand(lifeDensity);
   if (pendingMusicLayerCount === activeMusicLayerCount
     && densityBand === activeChordDensityBand
     && rotationPitchSemitones === activeRotationPitchSemitones
     && currentTimePhase === activeTimePhase) return;
   if (!musicPlaying) {
-    startStrudel();
+    if (!strudelReady) {
+      startStrudel();
+      return;
+    }
+    activeMusicLayerCount = pendingMusicLayerCount;
+    activeChordDensityBand = densityBand;
+    activeRotationPitchSemitones = rotationPitchSemitones;
+    activeTimePhase = currentTimePhase;
+    musicPlaying = true;
+    window.evaluate(buildStrudelCode(activeMusicLayerCount, activeChordDensityBand, activeTimePhase));
     return;
   }
   activeMusicLayerCount = pendingMusicLayerCount;
@@ -470,11 +492,8 @@ function appendNextCharacter() {
   visibleCharacters.push(character);
   setCurrentTarget(nextCharacter.target);
   visibleCount++;
-  const completedLayerCount = musicParts.filter(part => visibleCount >= part.endCharacterIndex).length;
-  if (completedLayerCount > pendingMusicLayerCount) {
-    pendingMusicLayerCount = completedLayerCount;
-    syncMusicLayers();
-  }
+  pendingMusicLayerCount = musicParts.filter(part => visibleCount >= part.endCharacterIndex).length;
+  syncMusicLayers();
   if (visibleCount >= characters.length && !allTextDisplayed) {
     allTextDisplayed = true;
     playParagraphLoop();
@@ -511,6 +530,8 @@ window.addEventListener("keydown", event => {
       setCurrentTarget(visibleCharacters.length
         ? visibleCharacters[visibleCharacters.length - 1].parentElement
         : targets[0]);
+      pendingMusicLayerCount = musicParts.filter(part => visibleCount >= part.endCharacterIndex).length;
+      syncMusicLayers();
     }
     return;
   } else if (event.ctrlKey || event.metaKey || event.altKey || ["Shift", "Control", "Alt", "Meta", "CapsLock"].includes(event.key)) {
